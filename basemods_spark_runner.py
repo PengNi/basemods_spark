@@ -804,7 +804,7 @@ def basemods_pipe():
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
                                                               refinfos.value[ref_id[0]].getSeqLength())
     # adjust ref_splitting_info
-    dfactor = 2
+    dfactor = 20
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
 
     adjusted_reads_rdd = aligned_reads_rdd\
