@@ -7,6 +7,7 @@ import shlex
 import os
 # import shutil
 import numpy
+import time
 
 from bash5_splitting import split_holenumbers, makeOffsetsDataStructure, get_movieName
 from fasta_info import getRefInfoFromFastaFiles
@@ -22,7 +23,7 @@ ref_filename = 'lambda.fasta'
 ref_sa_filename = 'lambda.fasta.sa'
 metadataxml_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210'
 metadataxml_name = 'm130802_062611_ethan_c100542982550000001823084811241306_s1_p0.metadata.xml'
-
+kernel_num = 39
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
 refMaxLength = 3e12
@@ -235,13 +236,14 @@ def basemods_pipeline_baxh5_operations(keyval):
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
     baxh5_operations = "{scripts_fold}/baxh5_operations.sh {temp_output_folder} {baxh5_filepath}" \
-                       " {reference_filepath} {referencesa_filepath} {cmph5_filename}".\
+                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {kernel_num}".\
         format(scripts_fold=SCRIPTS_FOLDER,
                temp_output_folder=TEMP_OUTPUT_FOLDER,
                baxh5_filepath=baxh5path,
                reference_filepath=reference_path,
                referencesa_filepath=referencesa_path,
-               cmph5_filename=cmph5file)
+               cmph5_filename=cmph5file,
+               kernel_num=kernel_num)
     baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
     baxh5_out, baxh5_error = baxh5_process.communicate()
 
@@ -455,14 +457,15 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
 
         # cmph5 operations (sort, repack, computeModifications)
         cmph5_operations = "{scripts_fold}/cmph5_operations.sh {temp_output_folder} {cmph5_filepath}" \
-                           " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename}"\
+                           " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename} {kernel_num}"\
             .format(scripts_fold=SCRIPTS_FOLDER,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
                     cmph5_filepath=cmph5path,
                     ref_chunk_info=refchunkinfo,
                     reference_filepath=reference_path,
                     gff_filename=tmpcOnrEX_gff,
-                    csv_filename=tmpcc5Wn6_csv)
+                    csv_filename=tmpcc5Wn6_csv,
+                    kernel_num=kernel_num)
         cmph5_process = Popen(shlex.split(cmph5_operations), stdout=PIPE, stderr=PIPE)
         cmph5_out, cmph5_error = cmph5_process.communicate()
 
@@ -761,7 +764,8 @@ def basemods_pipe():
     sc.addFile('/'.join([reference_directory, ref_filename]))
     sc.addFile('/'.join([reference_directory, ref_sa_filename]))
     # sc.addFile('/'.join([metadataxml_dir, metadataxml_name]))
-
+    # get the time when the process begin
+    t0 = time.time()
     # baxh5 file operations
     baxh5_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210/Analysis_Results'
     baxh5_folds = 1
@@ -779,6 +783,9 @@ def basemods_pipe():
     # FIXME: 2. keeping "aligned_reads_rdd" in memory saves time, but is a huge waste of memory.
     # FIXME:    need to figure out how not to use "aligned_reads_rdd" twice, so that can save memory.
     aligned_reads_rdd = all_baxh5rdds.flatMap(basemods_pipeline_baxh5_operations).persist()
+    # get the time after the baxh5_operations step
+    t1 = time.time()
+    print("The baxh5 operation step cost " + t1-t0 + "seconds.")
     # FIXME: x[0][0] is ref's fullname, x[0] is (ref_fullname, ref_md5), check split_reads_in_cmph5()
     ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
@@ -815,14 +822,19 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))
+    # get the time after the baxh5_operations step
+    t2 = time.time()
+    print("The cmph5 operation step cost time " + t2 - t1 + "seconds.")
     motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
 
     aligned_reads_rdd.unpersist()
-
-
+    # get the time after the mods_operations step
+    t3 = time.time()
+    print("The mods operation step cost " + t3 - t2 + "seconds.")
+    print("The process totally cost " + t3 - t0 + "seconds.")
 if __name__ == '__main__':
     print("spark start------------------------------------")
     basemods_pipe()

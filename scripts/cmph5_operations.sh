@@ -15,7 +15,7 @@ reference_filepath=$4
 
 tmpcOnrEX_gff=$5
 tmpcc5Wn6_csv=$6
-
+kernel_num=$7
 
 # set variables--------------------------------------
 ipdSummaryParamsPath=$SEYMOUR_HOME/analysis/etc/algorithm_parameters/2014-09/kineticsTools
@@ -64,9 +64,9 @@ echo -e "Task writeContigList finished on $(date)\n\n"
 
 
 # task for P_ModificationDetection.computeModifications --
-echo "Task computeModifications with nproc 3. Started on $(date)"
+echo "Task computeModifications with nproc 39. Started on $(date)"
 # Task 1
-ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify m6A,m4C --paramsPath $ipdSummaryParamsPath --numWorkers 3 --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$tmpcOnrEX_gff --csv $temp_output_folder/$tmpcc5Wn6_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info $cmph5_filepath || exit $?
+ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify m6A,m4C --paramsPath $ipdSummaryParamsPath --numWorkers kernel_num --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$tmpcOnrEX_gff --csv $temp_output_folder/$tmpcc5Wn6_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info $cmph5_filepath || exit $?
 echo "Task computeModifications: Task 1 completed at $(date)"
 ## Task 2
 #gzip --no-name -c $temp_output_folder/$tmpcOnrEX_gff > $temp_output_folder/$modifications_gff_gz || exit $?
