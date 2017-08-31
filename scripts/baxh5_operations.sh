@@ -13,7 +13,7 @@ baxh5_filepath=$2
 reference_filepath=$3
 referencesa_filepath=$4
 blasr_cmph5file=$5
-
+kernel_num=$6
 
 # set variables--------------------------------------
 baxh5filename=${baxh5_filepath##*/}
@@ -43,7 +43,7 @@ echo -e "Task filter finished at $(date)\n\n"
 # task for P_Mapping.align ---------------------------
 echo "Task align started on $(date)"
 # Task 1
-blasr $temp_output_folder/$baxh5_fofn_file $reference_filepath -sam -out $temp_output_folder/$blasrtmp_samfile -regionTable $temp_output_folder/$filterd_regions_fofnfile -minSubreadLength 50 -minReadLength 50 -randomSeed 1 -concordant -useQuality -minMatch 12 -bestn 10 -minPctIdentity 70.0 -sa $referencesa_filepath -placeRepeatsRandomly -nproc 3
+blasr $temp_output_folder/$baxh5_fofn_file $reference_filepath -sam -out $temp_output_folder/$blasrtmp_samfile -regionTable $temp_output_folder/$filterd_regions_fofnfile -minSubreadLength 50 -minReadLength 50 -randomSeed 1 -concordant -useQuality -minMatch 12 -bestn 10 -minPctIdentity 70.0 -sa $referencesa_filepath -placeRepeatsRandomly -nproc $kernel_num
 samFilter $temp_output_folder/$blasrtmp_samfile $reference_filepath $temp_output_folder/$blasrtmp_filterd_samfile -minAccuracy 75 -minLength 50 -seed 1 -hitPolicy randombest
 samtoh5 $temp_output_folder/$blasrtmp_filterd_samfile $reference_filepath $temp_output_folder/$blasr_cmph5file -readType standard
 rm $temp_output_folder/$blasrtmp_samfile
