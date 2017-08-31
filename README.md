@@ -8,3 +8,4 @@
 - need to change the code of "ipdsummary.py" (about the refchunk) and "kineticsTools package/KineticWorker.py" (about the bug); copy the modified files to each node
 
 ### How to use
+- use spark-submit
