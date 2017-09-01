@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # FIXME don't forget to let users set nproc
 
+# get input params-----------------------------------
+SEYMOUR_HOME=$1
+temp_output_folder=$2
+baxh5_filepath=$3
+reference_filepath=$4
+referencesa_filepath=$5
+blasr_cmph5file=$6
+kernel_num=$7
+
+
 # Setting up SMRTpipe environment
 echo "Setting up ENV on $(uname -n) for methylation detection"
-SEYMOUR_HOME=/home/smrtanalysis/smrtana/install/smrtanalysis_2.3.0.140936
 source $SEYMOUR_HOME/etc/setup.sh
 
-
-# get input params-----------------------------------
-temp_output_folder=$1
-baxh5_filepath=$2
-reference_filepath=$3
-referencesa_filepath=$4
-blasr_cmph5file=$5
-kernel_num=$6
 
 # set variables--------------------------------------
 baxh5filename=${baxh5_filepath##*/}

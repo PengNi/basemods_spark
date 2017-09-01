@@ -2,17 +2,19 @@
 # FIXME don't forget to let users set nproc
 # FIXME add the part of "makeMotifReport.sh" or not?
 
-# Setting up SMRTpipe environment
-echo "Setting up ENV on $(uname -n) for methylation detection"
-SEYMOUR_HOME=/home/smrtanalysis/smrtana/install/smrtanalysis_2.3.0.140936
-source $SEYMOUR_HOME/etc/setup.sh
 
 # get input params-----------------------------------
-temp_output_folder=$1
-modsgff_filepath=$2
-modscsv_filepath=$3
-reference_filepath=$4
-motifs_gff_gz=$5
+SEYMOUR_HOME=$1
+temp_output_folder=$2
+modsgff_filepath=$3
+modscsv_filepath=$4
+reference_filepath=$5
+motifs_gff_gz=$6
+
+
+# Setting up SMRTpipe environment
+echo "Setting up ENV on $(uname -n) for methylation detection"
+source $SEYMOUR_HOME/etc/setup.sh
 
 
 # set variables--------------------------------------

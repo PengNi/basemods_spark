@@ -2,20 +2,22 @@
 # FIXME don't forget to let users set nproc
 # FIXME ipdsummary.py --identify add all methylation types
 
+# get input params-----------------------------------
+SEYMOUR_HOME=$1
+temp_output_folder=$2
+cmph5_filepath=$3
+ref_chunk_info=$4
+reference_filepath=$5
+
+tmpcOnrEX_gff=$6
+tmpcc5Wn6_csv=$7
+kernel_num=$8
+
+
 # Setting up SMRTpipe environment
 echo "Setting up ENV on $(uname -n) for methylation detection"
-SEYMOUR_HOME=/home/smrtanalysis/smrtana/install/smrtanalysis_2.3.0.140936
 source $SEYMOUR_HOME/etc/setup.sh
 
-# get input params-----------------------------------
-temp_output_folder=$1
-cmph5_filepath=$2
-ref_chunk_info=$3
-reference_filepath=$4
-
-tmpcOnrEX_gff=$5
-tmpcc5Wn6_csv=$6
-kernel_num=$7
 
 # set variables--------------------------------------
 ipdSummaryParamsPath=$SEYMOUR_HOME/analysis/etc/algorithm_parameters/2014-09/kineticsTools

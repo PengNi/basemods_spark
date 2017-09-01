@@ -21,6 +21,7 @@ TEMP_OUTPUT_FOLDER = "/tmp/basmod_spark_data"
 
 # FIXME: the file path, especially the ref file path should be set by user.
 # FIXME: better in a configure file?
+SMRT_ANALYSIS_HOME = '/home/smrtanalysis/smrtana/install/smrtanalysis_2.3.0.140936'
 BAXH5_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210/Analysis_Results'
 REFERENCE_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda/sequence'
 ref_filename = 'lambda.fasta'
@@ -245,9 +246,10 @@ def basemods_pipeline_baxh5_operations(keyval):
     writebaxh5(filecontent, baxh5path)
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
-    baxh5_operations = "{baxh5_operations_sh} {temp_output_folder} {baxh5_filepath}" \
+    baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
                        " {reference_filepath} {referencesa_filepath} {cmph5_filename} {kernel_num}".\
         format(baxh5_operations_sh=baxh5_shell_file_path,
+               seymour_home=SMRT_ANALYSIS_HOME,
                temp_output_folder=TEMP_OUTPUT_FOLDER,
                baxh5_filepath=baxh5path,
                reference_filepath=reference_path,
@@ -467,9 +469,10 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         writecmph5(cmph5path, reads_info, reffullname, refmd5, refinfo, moviechemistry)
 
         # cmph5 operations (sort, repack, computeModifications)
-        cmph5_operations = "{cmph5_operations_sh} {temp_output_folder} {cmph5_filepath}" \
+        cmph5_operations = "{cmph5_operations_sh} {seymour_home} {temp_output_folder} {cmph5_filepath}" \
                            " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename} {kernel_num}"\
             .format(cmph5_operations_sh=cmph5_shell_file_path,
+                    seymour_home=SMRT_ANALYSIS_HOME,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
                     cmph5_filepath=cmph5path,
                     ref_chunk_info=refchunkinfo,
@@ -715,9 +718,10 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
     # modification operations (findMotifs, makeMotifGff)
-    mods_operations = "{mods_operations_sh} {temp_output_folder} {gff_filepath}" \
+    mods_operations = "{mods_operations_sh} {seymour_home} {temp_output_folder} {gff_filepath}" \
                       " {csv_filepath} {reference_filepath} {motifsgffgz_filename}" \
         .format(mods_operations_sh=mods_shell_file_path,
+                seymour_home=SMRT_ANALYSIS_HOME,
                 temp_output_folder=TEMP_OUTPUT_FOLDER,
                 gff_filepath=gfffilepath,
                 csv_filepath=csvfilepath,
