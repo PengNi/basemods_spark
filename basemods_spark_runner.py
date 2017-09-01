@@ -14,16 +14,24 @@ from fasta_info import getRefInfoFromFastaFiles
 from movie_chemistry import getMoviesChemistry
 from CmpH5Format import CmpH5Format
 
+shell_script_baxh5 = 'baxh5_operations.sh'
+shell_script_cmph5 = 'cmph5_operations.sh'
+shell_script_mods = 'mods_operations.sh'
+TEMP_OUTPUT_FOLDER = "/tmp/basmod_spark_data"
+
 # FIXME: the file path, especially the ref file path should be set by user.
 # FIXME: better in a configure file?
-TEMP_OUTPUT_FOLDER = "/tmp/basmod_spark_data"
-SCRIPTS_FOLDER = "/home/hadoop/workspace_py/basemods_spark/scripts"
-reference_directory = '/home/hadoop/workspace_py/basemods_spark/data/lambda/sequence'
+BAXH5_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210/Analysis_Results'
+REFERENCE_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda/sequence'
 ref_filename = 'lambda.fasta'
 ref_sa_filename = 'lambda.fasta.sa'
 metadataxml_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210'
 metadataxml_name = 'm130802_062611_ethan_c100542982550000001823084811241306_s1_p0.metadata.xml'
 kernel_num = 39
+
+BAXH5_FOLDS = 1
+REF_CHUNKS_FACTOR = 20
+
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
 refMaxLength = 3e12
@@ -216,6 +224,8 @@ def basemods_pipeline_baxh5_operations(keyval):
     reference_path = SparkFiles.get(ref_filename)
     referencesa_path = SparkFiles.get(ref_sa_filename)
     # metadataxml_path = SparkFiles.get(metadataxml_name)
+    baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
+
     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
 
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
@@ -235,9 +245,9 @@ def basemods_pipeline_baxh5_operations(keyval):
     writebaxh5(filecontent, baxh5path)
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
-    baxh5_operations = "{scripts_fold}/baxh5_operations.sh {temp_output_folder} {baxh5_filepath}" \
+    baxh5_operations = "{baxh5_operations_sh} {temp_output_folder} {baxh5_filepath}" \
                        " {reference_filepath} {referencesa_filepath} {cmph5_filename} {kernel_num}".\
-        format(scripts_fold=SCRIPTS_FOLDER,
+        format(baxh5_operations_sh=baxh5_shell_file_path,
                temp_output_folder=TEMP_OUTPUT_FOLDER,
                baxh5_filepath=baxh5path,
                reference_filepath=reference_path,
@@ -444,6 +454,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         # setting paths and variables
         name_prefix = reffullname + '.' + str(ref_start) + '-' + str(ref_end)
         reference_path = SparkFiles.get(ref_filename)
+        cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
         cmph5_filename = name_prefix + ".cmp.h5"
         cmph5path = '/'.join([TEMP_OUTPUT_FOLDER, cmph5_filename])
 
@@ -456,9 +467,9 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         writecmph5(cmph5path, reads_info, reffullname, refmd5, refinfo, moviechemistry)
 
         # cmph5 operations (sort, repack, computeModifications)
-        cmph5_operations = "{scripts_fold}/cmph5_operations.sh {temp_output_folder} {cmph5_filepath}" \
+        cmph5_operations = "{cmph5_operations_sh} {temp_output_folder} {cmph5_filepath}" \
                            " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename} {kernel_num}"\
-            .format(scripts_fold=SCRIPTS_FOLDER,
+            .format(cmph5_operations_sh=cmph5_shell_file_path,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
                     cmph5_filepath=cmph5path,
                     ref_chunk_info=refchunkinfo,
@@ -692,8 +703,9 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
         os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
 
     # setting paths and variables
-    name_prefix = reffullname + ".modification"
     reference_path = SparkFiles.get(ref_filename)
+    mods_shell_file_path = SparkFiles.get(shell_script_mods)
+    name_prefix = reffullname + ".modification"
     gfffilename = name_prefix + ".gff"
     csvfilename = name_prefix + ".csv"
     motifs_gff_gz_filename = reffullname + ".motifs.gff.gz"
@@ -703,9 +715,9 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
     # modification operations (findMotifs, makeMotifGff)
-    mods_operations = "{scripts_fold}/mods_operations.sh {temp_output_folder} {gff_filepath}" \
+    mods_operations = "{mods_operations_sh} {temp_output_folder} {gff_filepath}" \
                       " {csv_filepath} {reference_filepath} {motifsgffgz_filename}" \
-        .format(scripts_fold=SCRIPTS_FOLDER,
+        .format(mods_operations_sh=mods_shell_file_path,
                 temp_output_folder=TEMP_OUTPUT_FOLDER,
                 gff_filepath=gfffilepath,
                 csv_filepath=csvfilepath,
@@ -761,15 +773,20 @@ def basemods_pipe():
     sc = SparkContext(conf=conf)
 
     # files need to be shared in each node
-    sc.addFile('/'.join([reference_directory, ref_filename]))
-    sc.addFile('/'.join([reference_directory, ref_sa_filename]))
+    sc.addFile('/'.join([REFERENCE_DIR, ref_filename]))
+    sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
     # sc.addFile('/'.join([metadataxml_dir, metadataxml_name]))
+    sc.addFile('/'.join(['scripts', shell_script_baxh5]))
+    sc.addFile('/'.join(['scripts', shell_script_cmph5]))
+    sc.addFile('/'.join(['scripts', shell_script_mods]))
+
     # get the time when the process begin
     t0 = time.time()
+
     # baxh5 file operations
-    baxh5_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210/Analysis_Results'
-    baxh5_folds = 1
-    baxh5_numpartitions = 1
+    baxh5_dir = BAXH5_DIR
+    baxh5_folds = BAXH5_FOLDS
+    baxh5_numpartitions = BAXH5_FOLDS
     # FIXME: will this (append, union) work when the file is large/the memory is not enough?
     baxh5rdds = []
     for filename in os.listdir(baxh5_dir):
@@ -783,18 +800,20 @@ def basemods_pipe():
     # FIXME: 2. keeping "aligned_reads_rdd" in memory saves time, but is a huge waste of memory.
     # FIXME:    need to figure out how not to use "aligned_reads_rdd" twice, so that can save memory.
     aligned_reads_rdd = all_baxh5rdds.flatMap(basemods_pipeline_baxh5_operations).persist()
-    # get the time after the baxh5_operations step
-    t1 = time.time()
-    print("The baxh5 operation step cost " + t1-t0 + "seconds.")
+
     # FIXME: x[0][0] is ref's fullname, x[0] is (ref_fullname, ref_md5), check split_reads_in_cmph5()
     ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
+
+    # get the time after the baxh5_operations step
+    t1 = time.time()
+    print("The baxh5 operation step costs " + str(t1 - t0) + " seconds.")
 
     # reference info to be shared to each node
     # FIXME: 1. (IMPORTANT) for now, don't know how to cal md5 of a sequence,
     # FIXME:    so the md5 info can only be carried with each read.
     # FIXME: 2. keep sequence of the ref in refinfo or not? : not
     refinfos = sc.broadcast(
-        getRefInfoFromFastaFiles(['/'.join([reference_directory, ref_filename]), ]))
+        getRefInfoFromFastaFiles(['/'.join([REFERENCE_DIR, ref_filename]), ]))
 
     # get the ref chunks
     ref_splitting_info = {}
@@ -804,7 +823,7 @@ def basemods_pipe():
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
                                                               refinfos.value[ref_id[0]].getSeqLength())
     # adjust ref_splitting_info
-    dfactor = 20
+    dfactor = REF_CHUNKS_FACTOR
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
 
     adjusted_reads_rdd = aligned_reads_rdd\
@@ -822,19 +841,22 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))
+
     # get the time after the baxh5_operations step
     t2 = time.time()
-    print("The cmph5 operation step cost time " + t2 - t1 + "seconds.")
+    print("The cmph5 operation step costs " + str(t2 - t1) + " seconds.")
+
     motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
-
     aligned_reads_rdd.unpersist()
+
     # get the time after the mods_operations step
     t3 = time.time()
-    print("The mods operation step cost " + t3 - t2 + "seconds.")
-    print("The process totally cost " + t3 - t0 + "seconds.")
+    print("The mods operation step costs " + str(t3 - t2) + " seconds.")
+    print("The process totally costs " + str(t3 - t0) + " seconds.")
+
 if __name__ == '__main__':
     print("spark start------------------------------------")
     basemods_pipe()
