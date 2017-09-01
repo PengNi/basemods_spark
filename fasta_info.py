@@ -20,7 +20,11 @@ def _getRefInfoFromFastaFile(filepath):
 
     contiginfo_dict = {}
     for contiginfo in contiginfos:
-        contiginfo_dict[contiginfo.getContigName()] = contiginfo
+        # contiginfo_dict[contiginfo.getContigName()] = contiginfo
+        contiginfo_dict[contiginfo.getContigName()] = {}
+        contiginfo_dict[contiginfo.getContigName()]['sequence'] = contiginfo.getSequence()
+        contiginfo_dict[contiginfo.getContigName()]['seqLength'] = contiginfo.getSeqLength()
+        contiginfo_dict[contiginfo.getContigName()]['md5'] = contiginfo.getMd5()
     return contiginfo_dict
 
 

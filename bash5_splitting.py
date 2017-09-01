@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import numpy as np
+import numpy
 
 
 def split_holenumbers(holenumbers, folds=1):
@@ -11,8 +11,8 @@ def split_holenumbers(holenumbers, folds=1):
 
     hole_splitspots = [onefoldlen_base] * folds
     hole_splitspots[0] += fold_yu
-    endOffset = np.cumsum(hole_splitspots)
-    beginOffset = np.hstack(([0], endOffset[0:-1]))
+    endOffset = numpy.cumsum(hole_splitspots)
+    beginOffset = numpy.hstack(([0], endOffset[0:-1]))
     offsets = zip(beginOffset, endOffset)
     return offsets
 
@@ -25,8 +25,8 @@ def makeOffsetsDataStructure(baxh5obj):
     """
     numEvent = baxh5obj["/PulseData/BaseCalls/ZMW/NumEvent"].value
     holeNumber = baxh5obj["/PulseData/BaseCalls/ZMW/HoleNumber"].value
-    endOffset = np.cumsum(numEvent)
-    beginOffset = np.hstack(([0], endOffset[0:-1]))
+    endOffset = numpy.cumsum(numEvent)
+    beginOffset = numpy.hstack(([0], endOffset[0:-1]))
     offsets = zip(beginOffset, endOffset)
     return dict(zip(holeNumber, offsets))
 
@@ -41,7 +41,7 @@ def get_movieName(baxh5file):
 
     # In old bas.h5 files, attributes of ScanData/RunInfo are stored as
     # strings in arrays of length one.
-    if (isinstance(movieNameAttr, (np.ndarray, list)) and
+    if (isinstance(movieNameAttr, (numpy.ndarray, list)) and
                 len(movieNameAttr) == 1):
         movieNameString = movieNameAttr[0]
     else:

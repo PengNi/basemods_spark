@@ -44,13 +44,13 @@ echo "Task sort: Task 1 completed at $(date)"
 echo -e "Task sort finished on $(date)\n\n"
 
 
-## task for P_Mapping.repack --------------------------
-#echo "Task repack started on $(date)"
-## Task 1
-#((which h5repack && (h5repack -f GZIP=1 $cmph5_filepath $temp_output_folder/$cmph5_tmp_filename && mv /$temp_output_folder/$cmph5_tmp_filename $cmph5_filepath)) || echo 'no h5repack found, continuing w/out') || exit $?
-#echo "Task repack: Task 1 completed at $(date)"
-#
-#echo -e "Task repack finished on $(date)\n\n"
+# task for P_Mapping.repack --------------------------
+echo "Task repack started on $(date)"
+# Task 1
+((which h5repack && (h5repack -f GZIP=1 $cmph5_filepath $temp_output_folder/$cmph5_tmp_filename && mv /$temp_output_folder/$cmph5_tmp_filename $cmph5_filepath)) || echo 'no h5repack found, continuing w/out') || exit $?
+echo "Task repack: Task 1 completed at $(date)"
+
+echo -e "Task repack finished on $(date)\n\n"
 
 
 # task for P_ModificationDetection.writeContigList ----

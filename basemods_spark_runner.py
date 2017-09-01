@@ -8,11 +8,12 @@ import os
 # import shutil
 import numpy
 import time
+import xml.etree.ElementTree as ET
 
-from bash5_splitting import split_holenumbers, makeOffsetsDataStructure, get_movieName
-from fasta_info import getRefInfoFromFastaFiles
-from movie_chemistry import getMoviesChemistry
-from CmpH5Format import CmpH5Format
+# from bash5_splitting import split_holenumbers, makeOffsetsDataStructure, get_movieName
+# from fasta_info import getRefInfoFromFastaFiles
+# from movie_chemistry import getMoviesChemistry
+# from CmpH5Format import CmpH5Format
 
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
@@ -28,7 +29,7 @@ ref_filename = 'lambda.fasta'
 ref_sa_filename = 'lambda.fasta.sa'
 metadataxml_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210'
 metadataxml_name = 'm130802_062611_ethan_c100542982550000001823084811241306_s1_p0.metadata.xml'
-kernel_num = 39
+kernel_num = 3
 
 BAXH5_FOLDS = 1
 REF_CHUNKS_FACTOR = 20
@@ -38,6 +39,268 @@ H5DATASET = h5py._hl.dataset.Dataset
 refMaxLength = 3e12
 COLUMNS = 60
 PAD = 15
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# fasta_info.py-------------------------
+def getRefInfoFromFastaFiles(filepaths):
+    """
+
+    :param filepaths: list of filepath
+    :return:
+    """
+    contiginfo_dict = {}
+    for fp in filepaths:
+        contiginfo_dict.update(_getRefInfoFromFastaFile(fp))
+    return contiginfo_dict
+
+
+def _getRefInfoFromFastaFile(filepath):
+    contiginfos = FastaInfo(filepath).getContigs()
+
+    contiginfo_dict = {}
+    for contiginfo in contiginfos:
+        # contiginfo_dict[contiginfo.getContigName()] = contiginfo
+        contiginfo_dict[contiginfo.getContigName()] = {}
+        contiginfo_dict[contiginfo.getContigName()]['sequence'] = contiginfo.getSequence()
+        contiginfo_dict[contiginfo.getContigName()]['seqLength'] = contiginfo.getSeqLength()
+        contiginfo_dict[contiginfo.getContigName()]['md5'] = contiginfo.getMd5()
+    return contiginfo_dict
+
+
+class FastaInfo:
+
+    def __init__(self, filepath):
+        self._contigs = []  # list of ContigInfo()
+
+        with open(filepath, mode='r') as rf:
+            contigTmp = ContigInfo()
+            firstline = next(rf)
+            if not str(firstline).startswith(">"):
+                print("read fasta file wrong!")
+                raise ValueError
+            else:
+                contigTmp.setContigName(firstline.strip()[1:])
+
+            sequencetmp = ""
+            for line in rf:
+                if line.startswith(">"):
+                    # contigTmp.setSequence(sequencetmp)
+                    contigTmp.setSeqLength(len(sequencetmp))
+                    contigTmp.setMd5("")
+                    self._contigs.append(contigTmp)
+
+                    sequencetmp = ""
+                    contigTmp = ContigInfo()
+                    contigTmp.setContigName(line.strip()[1:])
+                else:
+                    sequencetmp += line.strip()
+
+            # the last contig
+            contigTmp.setSequence(sequencetmp)
+            contigTmp.setSeqLength(len(sequencetmp))
+            contigTmp.setMd5("")
+            self._contigs.append(contigTmp)
+
+    def getContigs(self):
+        return self._contigs
+
+
+class ContigInfo:
+    def __init__(self):
+        self._contigName = ""
+        self._sequence = ""
+        self._seqLength = 0
+        self._md5 = ""
+
+    def getContigName(self):
+        return self._contigName
+
+    def setContigName(self, contigname):
+        self._contigName = contigname
+
+    def getSequence(self):
+        return self._sequence
+
+    def setSequence(self, sequence):
+        self._sequence = sequence
+
+    def getSeqLength(self):
+        return self._seqLength
+
+    def setSeqLength(self, seqlength):
+        self._seqLength = seqlength
+
+    def getMd5(self):
+        return self._md5
+
+    def setMd5(self, md5):
+        self._md5 = md5
+
+
+# CmpH5Format.py-----------------------
+class CmpH5Format:
+    # def __init__(self, cmpH5):
+    def __init__(self):
+        # if ('Version' in cmpH5.attrs):
+        #     self.VERSION = cmpH5.attrs['Version']
+
+        self.ALN_INFO = 'AlnInfo'
+        self.REF_INFO = 'RefInfo'
+        self.MOVIE_INFO = 'MovieInfo'
+        self.REF_GROUP = 'RefGroup'
+        self.ALN_GROUP = 'AlnGroup'
+        self.ALN_INDEX_NAME = 'AlnIndex'
+        self.FILE_LOG = 'FileLog'
+        self.BARCODE_INFO = 'BarcodeInfo'
+
+        self.ALN_INDEX = '/'.join([self.ALN_INFO, self.ALN_INDEX_NAME])
+        self.REF_GROUP_ID = '/'.join([self.REF_GROUP, 'ID'])
+        self.REF_GROUP_PATH = '/'.join([self.REF_GROUP, 'Path'])
+        self.REF_GROUP_INFO_ID = '/'.join([self.REF_GROUP, 'RefInfoID'])
+
+        self.REF_OFFSET_TABLE = '/'.join([self.REF_GROUP, 'OffsetTable'])
+        self.ALN_GROUP_ID = '/'.join([self.ALN_GROUP, 'ID'])
+        self.ALN_GROUP_PATH = '/'.join([self.ALN_GROUP, 'Path'])
+
+        # Movie Info
+        self.MOVIE_INFO_ID = '/'.join([self.MOVIE_INFO, 'ID'])
+        self.MOVIE_INFO_NAME = '/'.join([self.MOVIE_INFO, 'Name'])
+        self.MOVIE_INFO_EXP = '/'.join([self.MOVIE_INFO, 'Exp'])
+        self.MOVIE_INFO_FRAME_RATE = '/'.join([self.MOVIE_INFO, 'FrameRate'])
+        self.MOVIE_INFO_RUN = '/'.join([self.MOVIE_INFO, 'Run'])
+        self.MOVIE_INFO_BINDING_KIT = '/'.join([self.MOVIE_INFO, 'BindingKit'])
+        self.MOVIE_INFO_SEQUENCING_KIT = '/'.join([self.MOVIE_INFO, 'SequencingKit'])
+        self.MOVIE_INFO_SOFTWARE_VERSION = '/'.join([self.MOVIE_INFO, 'SoftwareVersion'])
+
+        (self.ID, self.ALN_ID, self.MOVIE_ID, self.REF_ID, self.TARGET_START,
+         self.TARGET_END, self.RC_REF_STRAND, self.HOLE_NUMBER, self.SET_NUMBER,
+         self.STROBE_NUMBER, self.MOLECULE_ID, self.READ_START, self.READ_END,
+         self.MAP_QV, self.N_MATCHES, self.N_MISMATCHES, self.N_INSERTIONS,
+         self.N_DELETIONS, self.OFFSET_BEGIN, self.OFFSET_END, self.N_BACK,
+         self.N_OVERLAP) = range(0, 22)
+
+        # self.extraTables = ['/'.join([self.ALN_INFO, x]) for x in
+        #                     cmpH5[self.ALN_INFO].keys()
+        #                     if not x == self.ALN_INDEX_NAME]
+        # sorting
+        self.INDEX_ATTR = "Index"
+        self.INDEX_ELTS = ['REF_ID', 'TARGET_START', 'TARGET_END']
+
+
+# movie_chemistry.py-----------------
+def getMoviesChemistry(filepaths):
+    """
+
+    :param filepaths: list of filepath
+    :return:
+    """
+    moviestriple = {}
+    for filepath in filepaths:
+        moviestriple.update(MovieChemistry(filepath).getMovieTriple())
+    return moviestriple
+
+
+class ChemistryLookupError(Exception):
+    pass
+
+
+class MovieChemistry:
+    def __init__(self, filepath):
+        self._movietriple = {}
+        if str(filepath).endswith(".xml"):
+            moviename = str(filepath).split("/")[-1].split(".")[0]
+            triple = self.tripleFromMetadataXML(filepath)
+
+            tripledict = dict()
+            # tripledict['Name'] = moviename
+            tripledict['BindingKit'] = triple[0]
+            tripledict['SequencingKit'] = triple[1]
+            tripledict['SoftwareVersion'] = triple[2]
+            self._movietriple[moviename] = tripledict
+        else:
+            pass
+
+    def getMovieTriple(self):
+        return self._movietriple
+
+    def tripleFromMetadataXML(self, metadataXmlPath):
+        """
+        from pbcore.io.BasH5IO
+        Scrape the triple from the metadata.xml, or exception if the file
+        or the relevant contents are not found
+        """
+        nsd = {None: "http://pacificbiosciences.com/PAP/Metadata.xsd",
+               "pb": "http://pacificbiosciences.com/PAP/Metadata.xsd"}
+        try:
+            tree = ET.parse(metadataXmlPath)
+            root = tree.getroot()
+            bindingKit = root.find("pb:BindingKit/pb:PartNumber", namespaces=nsd).text
+            sequencingKit = root.find("pb:SequencingKit/pb:PartNumber", namespaces=nsd).text
+            # The instrument version is truncated to the first 3 dot components
+            instrumentControlVersion = root.find("pb:InstCtrlVer", namespaces=nsd).text
+            verComponents = instrumentControlVersion.split(".")[0:2]
+            instrumentControlVersion = ".".join(verComponents)
+            return (bindingKit, sequencingKit, instrumentControlVersion)
+        except Exception as e:
+            raise ChemistryLookupError, \
+                ("Could not find, or extract chemistry information from, %s" % (metadataXmlPath,))
+
+
+# bash5_splitting.py-------------------
+def split_holenumbers(holenumbers, folds=1):
+    holenumbers_len = len(holenumbers)
+    if folds > holenumbers_len:
+        folds = holenumbers_len
+    onefoldlen_base = holenumbers_len / folds
+    fold_yu = holenumbers_len % folds
+
+    hole_splitspots = [onefoldlen_base] * folds
+    hole_splitspots[0] += fold_yu
+    endOffset = numpy.cumsum(hole_splitspots)
+    beginOffset = numpy.hstack(([0], endOffset[0:-1]))
+    offsets = zip(beginOffset, endOffset)
+    return offsets
+
+
+def makeOffsetsDataStructure(baxh5obj):
+    """
+    from pbcore.io.BasH5IO.py
+    :param baxh5obj:
+    :return:
+    """
+    numEvent = baxh5obj["/PulseData/BaseCalls/ZMW/NumEvent"].value
+    holeNumber = baxh5obj["/PulseData/BaseCalls/ZMW/HoleNumber"].value
+    endOffset = numpy.cumsum(numEvent)
+    beginOffset = numpy.hstack(([0], endOffset[0:-1]))
+    offsets = zip(beginOffset, endOffset)
+    return dict(zip(holeNumber, offsets))
+
+
+def get_movieName(baxh5file):
+    """
+    from pbcore.io.BasH5IO.py.movieName
+    :param baxh5file:
+    :return:
+    """
+    movieNameAttr = baxh5file["/ScanData/RunInfo"].attrs["MovieName"]
+
+    # In old bas.h5 files, attributes of ScanData/RunInfo are stored as
+    # strings in arrays of length one.
+    if (isinstance(movieNameAttr, (numpy.ndarray, list)) and
+                len(movieNameAttr) == 1):
+        movieNameString = movieNameAttr[0]
+    else:
+        movieNameString = movieNameAttr
+
+    if not isinstance(movieNameString, basestring):
+        raise TypeError("Unsupported movieName {m} of type {t}."
+                        .format(m=movieNameString,
+                                t=type(movieNameString)))
+    return movieNameString
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------------
@@ -617,7 +880,7 @@ def writecmph5(filepath, reads_info, reffullname, refmd5, refinfo, moviechemistr
     f.create_dataset("RefInfo/ID", dtype="int32",
                      data=[REFINFOID, ])
     f.create_dataset("RefInfo/Length", dtype="int32",
-                     data=[refinfo[reffullname].getSeqLength(), ])
+                     data=[refinfo[reffullname]['seqLength'], ])
     # f.create_dataset("RefInfo/MD5", dtype=h5py.special_dtype(vlen=str),
     #                  data=[refinfo[reffullname].getMd5(), ])
     f.create_dataset("RefInfo/MD5", dtype=h5py.special_dtype(vlen=str),
@@ -755,7 +1018,7 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
     GFF_HEADER = "##gff-version 3\n" \
                  "##source ipdSummary.py v2.0\n" \
                  "##source-commandline /.../ipdSummary.py \n" \
-                 "##sequence-region ref000001 1 {}\n".format(refinfo[reffullname].getSeqLength())
+                 "##sequence-region ref000001 1 {}\n".format(refinfo[reffullname]['seqLength'])
     CSV_HEADER = "refName,tpl,strand,base,score,tMean,tErr,modelPrediction," \
                  "ipdRatio,coverage,frac,fracLow,fracUp\n"
 
@@ -780,9 +1043,11 @@ def basemods_pipe():
     sc.addFile('/'.join([REFERENCE_DIR, ref_filename]))
     sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
     # sc.addFile('/'.join([metadataxml_dir, metadataxml_name]))
-    sc.addFile('/'.join(['scripts', shell_script_baxh5]))
-    sc.addFile('/'.join(['scripts', shell_script_cmph5]))
-    sc.addFile('/'.join(['scripts', shell_script_mods]))
+
+    abs_dir = os.path.dirname(os.path.realpath(__file__))
+    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
+    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
+    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
     # get the time when the process begin
     t0 = time.time()
@@ -825,7 +1090,7 @@ def basemods_pipe():
         # FIXME: ref_id is (ref_fullname, ref_md5), check split_reads_in_cmph5()
         # FIXME: ref_id[0] is ref's fullname
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
-                                                              refinfos.value[ref_id[0]].getSeqLength())
+                                                              refinfos.value[ref_id[0]]['seqLength'])
     # adjust ref_splitting_info
     dfactor = REF_CHUNKS_FACTOR
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
