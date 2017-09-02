@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
-TEMP_OUTPUT_FOLDER = "/tmp/basmod_spark_data"
+TEMP_OUTPUT_FOLDER = "/tmp/basmods_spark_data"
 
 # FIXME: the file path, especially the ref file path should be set by user.
 # FIXME: better in a configure file?
@@ -31,7 +31,7 @@ metadataxml_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210'
 metadataxml_name = 'm130802_062611_ethan_c100542982550000001823084811241306_s1_p0.metadata.xml'
 kernel_num = 3
 
-BAXH5_FOLDS = 1
+BAXH5_FOLDS = 3
 REF_CHUNKS_FACTOR = 20
 
 H5GROUP = h5py._hl.group.Group
