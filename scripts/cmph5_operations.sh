@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# FIXME don't forget to let users set nproc
 # FIXME ipdsummary.py --identify add all methylation types
 
 # get input params-----------------------------------

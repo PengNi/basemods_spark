@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# FIXME don't forget to let users set nproc
 # FIXME add the part of "makeMotifReport.sh" or not?
 
 
@@ -27,7 +26,7 @@ motif_summary_csv_filename="${fileprefix}.motif_summary.csv"
 motif_summary_xml_filename="${fileprefix}.motif_summary.xml"
 motif_summary_html_filename="${fileprefix}.motif_summary.html"
 motif_tmpPQUF7M_gff="${fileprefix}.tmpPQUF7M.gff"
-# motifs_gff_gz="${fileprefix}.motifs.gff.gz"
+motifs_gff_gz="${fileprefix}.motifs.gff.gz"
 
 
 # task for P_MotifFinder.findMotifs -----------------

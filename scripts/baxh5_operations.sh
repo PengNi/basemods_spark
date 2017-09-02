@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# FIXME don't forget to let users set nproc
 
 # get input params-----------------------------------
 SEYMOUR_HOME=$1
