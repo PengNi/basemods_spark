@@ -483,7 +483,7 @@ def basemods_pipeline_baxh5_operations(keyval):
     """
     fileinfo, filecontent = keyval
 
-    name_prefix = fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])
+    name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', '_')
     baxh5file = name_prefix + ".bax.h5"
     reference_path = SparkFiles.get(ref_filename)
     referencesa_path = SparkFiles.get(ref_sa_filename)
@@ -717,7 +717,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
             os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
 
         # setting paths and variables
-        name_prefix = reffullname + '.' + str(ref_start) + '-' + str(ref_end)
+        name_prefix = reffullname.replace(' ', '_') + '.' + str(ref_start) + '-' + str(ref_end)
         reference_path = SparkFiles.get(ref_filename)
         cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
         cmph5_filename = name_prefix + ".cmp.h5"
@@ -971,7 +971,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     # setting paths and variables
     reference_path = SparkFiles.get(ref_filename)
     mods_shell_file_path = SparkFiles.get(shell_script_mods)
-    name_prefix = reffullname + ".modification"
+    name_prefix = reffullname.replace(' ', '_') + ".modification"
     gfffilename = name_prefix + ".gff"
     csvfilename = name_prefix + ".csv"
     motifs_gff_gz_filename = reffullname + ".motifs.gff.gz"
