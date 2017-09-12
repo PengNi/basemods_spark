@@ -51,7 +51,7 @@ def getParametersFromFile(config_file):
     ref_filename = conf.get("filepath", "ref_filename")
     ref_sa_filename = conf.get("filepath", "ref_sa_filename")
 
-    DATA_DIR = conf.get("filepath", "data_dir")
+    DATA_DIR = conf.get("filepath", "cell_data_dir")
 
     kernel_num = conf.getint("parameter", "kernel_num")
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
@@ -994,7 +994,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     name_prefix = reffullname.replace(' ', '_') + ".modification"
     gfffilename = name_prefix + ".gff"
     csvfilename = name_prefix + ".csv"
-    motifs_gff_gz_filename = reffullname + ".motifs.gff.gz"
+    motifs_gff_gz_filename = name_prefix + ".motifs.gff.gz"
 
     gfffilepath = '/'.join([TEMP_OUTPUT_FOLDER, gfffilename])
     csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
@@ -1078,7 +1078,7 @@ def basemods_pipe():
     baxh5_folds = BAXH5_FOLDS
     baxh5_numpartitions = BAXH5_FOLDS
 
-    # FIXME: will this (append, union) work when the file is large/the memory is not enough?
+
     baxh5_filenames = []
     metaxml_filenames = []
     for root, dirnames, filenames in os.walk(pacbio_data_dir):
@@ -1086,6 +1086,8 @@ def basemods_pipe():
             baxh5_filenames.append(os.path.join(root, filename))
         for filename in fnmatch.filter(filenames, '*.metadata.xml'):
             metaxml_filenames.append(os.path.join(root, filename))
+
+    # FIXME: will this (append, union) work when the file is large/the memory is not enough?
     baxh5rdds = []
     for filename in baxh5_filenames:
         baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
