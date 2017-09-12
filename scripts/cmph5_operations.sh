@@ -11,7 +11,7 @@ reference_filepath=$5
 tmpcOnrEX_gff=$6
 tmpcc5Wn6_csv=$7
 kernel_num=$8
-methylation=$9
+methylation_type=$9
 
 # Setting up SMRTpipe environment
 echo "Setting up ENV on $(uname -n) for methylation detection"
@@ -67,7 +67,7 @@ echo -e "Task writeContigList finished on $(date)\n\n"
 # task for P_ModificationDetection.computeModifications --
 echo "Task computeModifications with nproc 39. Started on $(date)"
 # Task 1
-ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify $methylation --paramsPath $ipdSummaryParamsPath --numWorkers $kernel_num --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$tmpcOnrEX_gff --csv $temp_output_folder/$tmpcc5Wn6_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info $cmph5_filepath || exit $?
+ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify $methylation_type --paramsPath $ipdSummaryParamsPath --numWorkers $kernel_num --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$tmpcOnrEX_gff --csv $temp_output_folder/$tmpcc5Wn6_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info $cmph5_filepath || exit $?
 echo "Task computeModifications: Task 1 completed at $(date)"
 ## Task 2
 #gzip --no-name -c $temp_output_folder/$tmpcOnrEX_gff > $temp_output_folder/$modifications_gff_gz || exit $?
