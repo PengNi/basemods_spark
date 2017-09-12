@@ -1068,17 +1068,12 @@ def basemods_pipe():
     # files need to be shared in each node
     sc.addFile('/'.join([REFERENCE_DIR, ref_filename]))
     sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
-
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
-    # baxh5 file operations
+    # get all files in cell_data_directory
     pacbio_data_dir = DATA_DIR
-    baxh5_folds = BAXH5_FOLDS
-    baxh5_numpartitions = BAXH5_FOLDS
-
-
     baxh5_filenames = []
     metaxml_filenames = []
     for root, dirnames, filenames in os.walk(pacbio_data_dir):
@@ -1088,6 +1083,9 @@ def basemods_pipe():
             metaxml_filenames.append(os.path.join(root, filename))
 
     # FIXME: will this (append, union) work when the file is large/the memory is not enough?
+    # baxh5 file operations
+    baxh5_folds = BAXH5_FOLDS
+    baxh5_numpartitions = BAXH5_FOLDS
     baxh5rdds = []
     for filename in baxh5_filenames:
         baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
