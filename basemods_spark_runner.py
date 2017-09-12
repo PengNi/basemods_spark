@@ -8,7 +8,6 @@ import os
 import fnmatch
 import numpy
 import ConfigParser
-import gc
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -382,8 +381,6 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
         wholeinfo_rdd = None
         print("baxh5tordd wrong!")
 
-    # print(wholeinfo_rdd.first())
-    # -----------------------------------------------------------------
     return wholeinfo_rdd
 
 
@@ -1056,12 +1053,11 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
 
 
 def basemods_pipe():
-    # test if gc is working
-    gc.enable()
 
     abs_dir = os.path.dirname(os.path.realpath(__file__))
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
+    SparkContext.setSystemProperty('spark.executor.memory', '4g')
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
@@ -1087,12 +1083,10 @@ def basemods_pipe():
     baxh5_folds = BAXH5_FOLDS
     baxh5_numpartitions = BAXH5_FOLDS
     baxh5rdds = []
+    # todo: change forloop  to multiprocess
     for filename in baxh5_filenames:
         baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
     all_baxh5rdds = sc.union(baxh5rdds)
-
-    # FIXME
-    gc.collect()
 
     # cmph5 file operations
     # FIXME: 1. for the rdd contains every reads in cmph5, which is better: sort first and then group, or
@@ -1143,6 +1137,9 @@ def basemods_pipe():
                                                                       refinfos.value))
     motif_rdd.count()
     aligned_reads_rdd.unpersist()
+
+    SparkContext.stop(sc)
+
 
 if __name__ == '__main__':
     print("spark start------------------------------------")
