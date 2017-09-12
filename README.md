@@ -14,16 +14,17 @@ the spark version of basemods pipeline in SMRT-Analysis
     
     2.2 In each worker node, replace *ipdsummary.py* and *KineticWorker.py* in SMRT-Analysis with the modified scripts in our code.
      + copy *basemods_spark/scripts/ipdSummary.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin*
-       
+
       ```sh
       chmod +x basemods_spark/scripts/ipdSummary.py
       
       sudo mv $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/ipdSummary.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/ipdSummary.py.bak
       
-      sudo cp basemods_spark/scripts/ipdSummary.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin
+      sudo cp basemods_spark/scripts/ipdSummary.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/
       ```
-    + copy *basemods_spark/scripts/KineticWorker.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools*
-    
+
+    + copy *basemods_spark/scripts/KineticWorker.py* to $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools*
+   
     ```sh
     sudo mv $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools/KineticWorker.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools/KineticWorker.py.bak
     
@@ -39,15 +40,19 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 1. #### make scripts in our code executable
 
-If the scripts in our code don't have execute permissions, you should make them executable
+If the scripts in our code don't have execute permissions, you should make them executable.
     
-    ```sh
-    chmod +x basemods_spark/scripts/baxh5_operations.sh
+```sh
+chmod +x basemods_spark/scripts/baxh5_operations.sh
     
-    chmod +x basemods_spark/scripts/cmph5_operations.sh
+chmod +x basemods_spark/scripts/cmph5_operations.sh
     
-    chmod +x basemods_spark/scripts/mods_operations.sh
-    ```
+chmod +x basemods_spark/scripts/mods_operations.sh
+```
 
 2. #### use spark-submit
+
+
+3. #### parameters in configure file
+
 
