@@ -5,11 +5,12 @@ from subprocess import Popen, PIPE
 import h5py
 import shlex
 import os
+import sys
 # import shutil
 import numpy
-import time
+#import time
 import xml.etree.ElementTree as ET
-
+import ConfigParser
 # from bash5_splitting import split_holenumbers, makeOffsetsDataStructure, get_movieName
 # from fasta_info import getRefInfoFromFastaFiles
 # from movie_chemistry import getMoviesChemistry
@@ -18,21 +19,6 @@ import xml.etree.ElementTree as ET
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
-TEMP_OUTPUT_FOLDER = "/tmp/basmods_spark_data"
-
-# FIXME: the file path, especially the ref file path should be set by user.
-# FIXME: better in a configure file?
-SMRT_ANALYSIS_HOME = '/home/smrtanalysis/smrtana/install/smrtanalysis_2.3.0.140936'
-BAXH5_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210/Analysis_Results'
-REFERENCE_DIR = '/home/hadoop/workspace_py/basemods_spark/data/lambda/sequence'
-ref_filename = 'lambda.fasta'
-ref_sa_filename = 'lambda.fasta.sa'
-metadataxml_dir = '/home/hadoop/workspace_py/basemods_spark/data/lambda_v210'
-metadataxml_name = 'm130802_062611_ethan_c100542982550000001823084811241306_s1_p0.metadata.xml'
-kernel_num = 3
-
-BAXH5_FOLDS = 3
-REF_CHUNKS_FACTOR = 20
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
@@ -43,6 +29,42 @@ PAD = 15
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
+# read configfile to get parameters------------------------------------------
+def getParametersFromFile():
+    os.chdir(os.path.split(os.path.realpath(sys.argv[0]))[0])
+    conf = ConfigParser.ConfigParser()
+    conf.read("parameter.conf")
+    global TEMP_OUTPUT_FOLDER
+    global SMRT_ANALYSIS_HOME
+    global BAXH5_DIR
+    global REFERENCE_DIR
+    global ref_filename
+    global ref_sa_filename
+    global metadataxml_dir
+    global metadataxml_name
+    global LOG_FILE
+    global kernel_num
+    
+    global BAXH5_FOLDS
+    global REF_CHUNKS_FACTOR
+    global methylation
+    TEMP_OUTPUT_FOLDER = conf.get("filepath","TEMP_OUTPUT_FOLDER")
+    SMRT_ANALYSIS_HOME = conf.get("filepath","SMRT_ANALYSIS_HOME")
+    BAXH5_DIR = conf.get("filepath","BAXH5_DIR")
+    REFERENCE_DIR = conf.get("filepath","REFERENCE_DIR")
+    ref_filename = conf.get("filepath","ref_filename")
+    ref_sa_filename = conf.get("filepath","ref_sa_filename")
+    metadataxml_dir = conf.get("filepath","metadataxml_dir")
+    metadataxml_name = conf.get("filepath","metadataxml_name")
+    LOG_FILE = conf.get("filepath","LOG_FILE")
+    methylation = conf.get("filepath","methylation")
+
+    kernel_num = conf.getint("parameter","kernel_num")
+    BAXH5_FOLDS = conf.getint("parameter","BAXH5_FOLDS")
+    REF_CHUNKS_FACTOR = conf.getint("parameter","REF_CHUNKS_FACTOR")
+    # print(LOG_FILE)
+    # print(kernel_num)
+    return
 # fasta_info.py-------------------------
 def getRefInfoFromFastaFiles(filepaths):
     """
@@ -509,6 +531,7 @@ def basemods_pipeline_baxh5_operations(keyval):
     writebaxh5(filecontent, baxh5path)
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
+    f = open(LOG_FILE,'a+')
     baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
                        " {reference_filepath} {referencesa_filepath} {cmph5_filename} {kernel_num}".\
         format(baxh5_operations_sh=baxh5_shell_file_path,
@@ -519,20 +542,24 @@ def basemods_pipeline_baxh5_operations(keyval):
                referencesa_filepath=referencesa_path,
                cmph5_filename=cmph5file,
                kernel_num=kernel_num)
-    baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
-    baxh5_out, baxh5_error = baxh5_process.communicate()
+    baxh5_process = Popen(shlex.split(baxh5_operations), stdout=f.fileno(), stderr=f.fileno())
+    baxh5_process.communicate()
+    f.close()
+    # """
+    # baxh5_out, baxh5_error = baxh5_process.communicate()	
 
-    if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
-        raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
-                         format(baxh5_out, baxh5_error))
+    # if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
+    #     raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+    #                      format(baxh5_out, baxh5_error))
 
-    if baxh5_process.returncode != 0:
-        raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
-                         " stderr: {}".format(baxh5_out, baxh5_error))
-    else:
-        print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
-        cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
-        return split_reads_in_cmph5(cmph5_filepath)
+    # if baxh5_process.returncode != 0:
+    #     raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
+    #                      " stderr: {}".format(baxh5_out, baxh5_error))
+    # else:
+    #     print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
+    # """
+    cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
+    return split_reads_in_cmph5(cmph5_filepath)
 
 
 def writebaxh5(filecontent, filepath):
@@ -732,8 +759,9 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         writecmph5(cmph5path, reads_info, reffullname, refmd5, refinfo, moviechemistry)
 
         # cmph5 operations (sort, repack, computeModifications)
+        f = open(LOG_FILE,'a+')
         cmph5_operations = "{cmph5_operations_sh} {seymour_home} {temp_output_folder} {cmph5_filepath}" \
-                           " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename} {kernel_num}"\
+                           " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename} {kernel_num} {methylation}"\
             .format(cmph5_operations_sh=cmph5_shell_file_path,
                     seymour_home=SMRT_ANALYSIS_HOME,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
@@ -742,33 +770,39 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                     reference_filepath=reference_path,
                     gff_filename=tmpcOnrEX_gff,
                     csv_filename=tmpcc5Wn6_csv,
-                    kernel_num=kernel_num)
-        cmph5_process = Popen(shlex.split(cmph5_operations), stdout=PIPE, stderr=PIPE)
-        cmph5_out, cmph5_error = cmph5_process.communicate()
+                    kernel_num=kernel_num,
+                    methylation=methylation)
+        
+        cmph5_process = Popen(shlex.split(cmph5_operations), stdout=f.fileno(), stderr=f.fileno())
+        cmph5_process.communicate()
+        f.close()
+        # """
+        # cmph5_out, cmph5_error = cmph5_process.communicate()
 
-        if "[Errno" in cmph5_error.strip() or "error" in cmph5_error.strip().lower():
-            raise ValueError("cmph5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
-                             format(cmph5_out, cmph5_error))
+        # if "[Errno" in cmph5_error.strip() or "error" in cmph5_error.strip().lower():
+        #     raise ValueError("cmph5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+        #                      format(cmph5_out, cmph5_error))
 
-        if cmph5_process.returncode != 0:
-            raise ValueError("cmph5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
-                             " stderr: {}".format(cmph5_out, cmph5_error))
-        else:
-            print("\ncmph5 process logging:\n stdout:{} \n".format(cmph5_out))
-            gff_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcOnrEX_gff])
-            csv_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcc5Wn6_csv])
+        # if cmph5_process.returncode != 0:
+        #     raise ValueError("cmph5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
+        #                      " stderr: {}".format(cmph5_out, cmph5_error))
+        # else:
+        #     print("\ncmph5 process logging:\n stdout:{} \n".format(cmph5_out))
+        # """
+        gff_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcOnrEX_gff])
+        csv_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcc5Wn6_csv])
 
-            gffContent, csvContent = "", ""
-            with open(gff_filepath) as rf:
-                for line in rf:
-                    if not line.startswith("##"):
-                        gffContent += line.strip() + "\n"
-            with open(csv_filepath) as rf:
-                next(rf)
-                for line in rf:
-                    csvContent += line.strip() + "\n"
+        gffContent, csvContent = "", ""
+        with open(gff_filepath) as rf:
+            for line in rf:
+                if not line.startswith("##"):
+                    gffContent += line.strip() + "\n"
+        with open(csv_filepath) as rf:
+            next(rf)
+            for line in rf:
+                csvContent += line.strip() + "\n"
 
-            return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, })
+        return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, })
     else:
         raise ValueError("no reads to form a cmph5 file")
 
@@ -981,6 +1015,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
     # modification operations (findMotifs, makeMotifGff)
+    f = open(LOG_FILE,'a+')
     mods_operations = "{mods_operations_sh} {seymour_home} {temp_output_folder} {gff_filepath}" \
                       " {csv_filepath} {reference_filepath} {motifsgffgz_filename}" \
         .format(mods_operations_sh=mods_shell_file_path,
@@ -990,19 +1025,23 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
                 csv_filepath=csvfilepath,
                 reference_filepath=reference_path,
                 motifsgffgz_filename=motifs_gff_gz_filename)
-    mods_process = Popen(shlex.split(mods_operations), stdout=PIPE, stderr=PIPE)
-    mods_out, mods_error = mods_process.communicate()
+    mods_process = Popen(shlex.split(mods_operations), stdout=f.fileno(), stderr=f.fileno())
+    mods_process.communicate()
+    f.close()
+    # """
+    # mods_out, mods_error = mods_process.communicate()
 
-    if "[Errno" in mods_error.strip() or "error" in mods_error.strip().lower():
-        raise ValueError("mods process failed to complete! (Error)\n stdout: {} \n stderr: {}".
-                         format(mods_out, mods_error))
+    # if "[Errno" in mods_error.strip() or "error" in mods_error.strip().lower():
+    #     raise ValueError("mods process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+    #                      format(mods_out, mods_error))
 
-    if mods_process.returncode != 0:
-        raise ValueError("mods process failed to complete! (Non-zero return code)\n stdout: {} \n"
-                         " stderr: {}".format(mods_out, mods_error))
-    else:
-        print("\nmods process logging:\n stdout:{} \n".format(mods_out))
-        return motifs_gff_gz_filename
+    # if mods_process.returncode != 0:
+    #     raise ValueError("mods process failed to complete! (Non-zero return code)\n stdout: {} \n"
+    #                      " stderr: {}".format(mods_out, mods_error))
+    # else:
+    #     print("\nmods process logging:\n stdout:{} \n".format(mods_out))
+    # """
+    return motifs_gff_gz_filename
 
 
 def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath):
@@ -1036,6 +1075,7 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
 
 
 def basemods_pipe():
+	getParametersFromFile()
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
@@ -1049,9 +1089,7 @@ def basemods_pipe():
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
-    # get the time when the process begin
-    t0 = time.time()
-
+    
     # baxh5 file operations
     baxh5_dir = BAXH5_DIR
     baxh5_folds = BAXH5_FOLDS
@@ -1072,10 +1110,6 @@ def basemods_pipe():
 
     # FIXME: x[0][0] is ref's fullname, x[0] is (ref_fullname, ref_md5), check split_reads_in_cmph5()
     ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
-
-    # get the time after the baxh5_operations step
-    t1 = time.time()
-    print("The baxh5 operation step costs " + str(t1 - t0) + " seconds.")
 
     # reference info to be shared to each node
     # FIXME: 1. (IMPORTANT) for now, don't know how to cal md5 of a sequence,
@@ -1111,20 +1145,11 @@ def basemods_pipe():
                                                                moviestriple.value,
                                                                refinfos.value))
 
-    # get the time after the baxh5_operations step
-    t2 = time.time()
-    print("The cmph5 operation step costs " + str(t2 - t1) + " seconds.")
-
     motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
     aligned_reads_rdd.unpersist()
-
-    # get the time after the mods_operations step
-    t3 = time.time()
-    print("The mods operation step costs " + str(t3 - t2) + " seconds.")
-    print("The process totally costs " + str(t3 - t0) + " seconds.")
 
 if __name__ == '__main__':
     print("spark start------------------------------------")
