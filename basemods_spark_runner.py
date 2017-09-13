@@ -8,12 +8,18 @@ import os
 import fnmatch
 import numpy
 import ConfigParser
+import time
+from itertools import groupby
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
 parameters_config = 'parameters.conf'
+
+hdfs_dir = '/basemodstmp'
+cell_data_tmp_dir = '/home/hadoop/pacbio_data/pacbio_ecoli/E01_1'
+isNeedtoSave2hdfs = True
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
@@ -320,12 +326,82 @@ def get_movieName(baxh5file):
 
 
 # ---------------------------------------------------------------------------------
-# FIXME: 1. how to convert a dataset to an rdd without reading the whole dataset into memory?
-# FIXME: 2. 现在的做法是对于每一个dataset都转成一个RDD，然后再用union+groupByKey合并。
-# FIXME:    根据每个key的信息，直接将所有该key的dataset读成rdd里的一个元素，省掉union和group，
-# FIXME:    是不是更好？（可能的情况：这种做法会更快，但会更耗内存？）
-# convert baxh5 to RDD------------------------------------------------
-def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
+# save baxh5 to hdfs-------------------------------------------------
+def run_cmd(args_list):
+    print('Running system command: {0}'.format(' '.join(args_list)))
+    proc = Popen(args_list, stdout=PIPE, stderr=PIPE)
+    (output, errors) = proc.communicate()
+    if proc.returncode:
+        raise RuntimeError(
+            'Error running command: %s. Return code: %d, Error: %s' % (
+                ' '.join(args_list), proc.returncode, errors))
+    return output, errors
+
+
+def convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers,
+                                   f, datasetname, moviename):
+    sdata = f[datasetname]
+    dtype = sdata.dtype
+    sshape = sdata.shape
+
+    scparas = list()
+    if len(sshape) == 1:
+        for holess in hole_splitspots:
+            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
+                            ((datasetname, dtype), sdata[holess[0]:holess[1]])))
+    else:
+        for holess in hole_splitspots:
+            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
+                            ((datasetname, dtype), sdata[holess[0]:holess[1], :])))
+
+    return scparas
+
+
+def convert_dataset_in_basecalls_to_list(hole_splitspots, holenumbers,
+                                         basecall_splitspots, f, datasetname, moviename):
+    sdata = f[datasetname]
+    dtype = sdata.dtype
+    sshape = sdata.shape
+
+    scparas = list()
+    if len(sshape) == 1:
+        for i in range(0, len(hole_splitspots)):
+            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
+                                         holenumbers[hole_splitspots[i][1] - 1])),
+                            ((datasetname, dtype),
+                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1]])))
+    else:
+        for i in range(0, len(hole_splitspots)):
+            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
+                                         holenumbers[hole_splitspots[i][1] - 1])),
+                            ((datasetname, dtype),
+                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1], :])))
+    return scparas
+
+
+def convert_regions_dataset_to_list(hole_splitspots, holenumbers,
+                                    f, datasetname, moviename):
+    regiondata = f[datasetname]
+    dtype = regiondata.dtype
+    sshape = regiondata.shape
+
+    scparas = list()
+    locs_start = 0
+    for holess in hole_splitspots[:-1]:
+        holenumbers_tmp = set(holenumbers[holess[0]:holess[1]])
+        for i in range(locs_start, sshape[0]):
+            if regiondata[i, 0] not in holenumbers_tmp:
+                scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
+                                ((datasetname, dtype), regiondata[locs_start:i, :])))
+                locs_start = i
+                break
+    scparas.append(((moviename, (holenumbers[hole_splitspots[-1][0]],
+                                 holenumbers[hole_splitspots[-1][1] - 1])),
+                    ((datasetname, dtype), regiondata[locs_start:, :])))
+    return scparas
+
+
+def splith5file(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
     if folds > len(holenumbers):
@@ -337,115 +413,184 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
     moviename = get_movieName(f)
     # print(hole_splitspots)
 
-    rdds = []
+    holerange_data = []
 
     # datasets in PulseData/BaseCalls/ZMW
     # FIXME: use (for key in f['']) or (for key in f[''].keys())?
     for key in f['/PulseData/BaseCalls/ZMW']:
-        rdds.append(convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                                  holenumbers, f,
-                                                  '/PulseData/BaseCalls/ZMW/' + str(key),
-                                                  moviename))
+        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
+                                                             '/PulseData/BaseCalls/ZMW/' + str(key),
+                                                             moviename))
 
     # datasets in PulseData/BaseCalls/ZMWMetrics
     for key in f['/PulseData/BaseCalls/ZMWMetrics']:
-        rdds.append(convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                                  holenumbers, f,
-                                                  '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
-                                                  moviename))
+        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
+                                                             '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
+                                                             moviename))
 
     # datasets in PulseData/BaseCalls
     for key in f['/PulseData/BaseCalls']:
         if not (str(key) == 'ZMWMetrics' or str(key) == 'ZMW'):
-            rdds.append(convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots,
-                                                            holenumbers, basecall_splitspots, f,
-                                                            '/PulseData/BaseCalls/' + str(key),
-                                                            moviename))
+            holerange_data.extend(convert_dataset_in_basecalls_to_list(hole_splitspots,
+                                                                       holenumbers, basecall_splitspots, f,
+                                                                       '/PulseData/BaseCalls/' + str(key),
+                                                                       moviename))
 
     # PulseData/Regions
-    rdds.append(convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots, holenumbers, f,
-                                               '/PulseData/Regions', moviename))
-
-    # baxh5 attrs
-    baxh5attrs = sc.broadcast(get_baxh5_attrs(f))
-
+    holerange_data.extend(convert_regions_dataset_to_list(hole_splitspots, holenumbers, f,
+                                                          '/PulseData/Regions', moviename))
+    baxh5attrs = get_baxh5_attrs(f)
     f.close()
-    if len(rdds) == 1:
-        wholeinfo_rdd = rdds[0]
-    elif len(rdds) > 1:
-        wholeinfo_rdd = sc.union(rdds)\
-            .groupByKey() \
-            .map(lambda (x, y): (x, list(y)))\
-            .map(lambda (x, y): (x, (y, baxh5attrs.value)))
+    return holerange_data, {(moviename, (min(holenumbers), max(holenumbers))): baxh5attrs}
+
+
+def writeh5partstohdfs(holerange_data, tmpdir, hdfs_directory):
+    def ndarrayrow2str(arow):
+        return ','.join(map(str, arow))
+    holerange_data = sorted(holerange_data)
+    for key, group in groupby(holerange_data, lambda x: x[0]):
+        moviename = key[0]
+        holerange = key[1]
+        filenametmp = (moviename + '.' + str(holerange[0]) + '-' +
+                       str(holerange[1]) + '.h5.txt').replace(' ', '_')
+
+        with open('/'.join([tmpdir, filenametmp]), mode='w') as wf:
+            valuestr = ''
+            valuestr += moviename + '\n'
+            valuestr += str(holerange[0]) + ',' + str(holerange[1]) + '\n'
+            for h5data in group:
+                datatmp = h5data[1]
+                datasetname = datatmp[0][0]
+                datasettype = datatmp[0][1]
+                datasetvalue = datatmp[1]
+                datasetshape = datasetvalue.shape
+
+                # FIXME: now i'm ignoring (3+)D array
+                if len(datasetshape) >= 3:
+                    continue
+
+                valuestr += '[dataset]\n'
+                valuestr += 'name=' + datasetname + '\n'
+                valuestr += 'type=' + str(datasettype) + '\n'
+                valuestr += 'shape=' + str(datasetshape) + '\n'
+                valuestr += 'valuestart\n'
+                if len(datasetshape) == 1:
+                    valuestr += '\n'.join(map(str, datasetvalue))
+                elif len(datasetshape) == 2:
+                    valuestr += '\n'.join(map(ndarrayrow2str, datasetvalue))
+                valuestr += 'valueEnd\n'
+            wf.write(valuestr + '\n')
+
+        # FIXME: may be can find a solution to write to hdfs directly,
+        # FIXME: skip the step of writing to local file system
+        stdout, stderror = run_cmd(['hdfs', 'dfs', '-put', '/'.join([tmpdir, filenametmp]),
+                                    '/'.join([hdfs_directory, filenametmp])])
+        stdout, stderror = run_cmd(['rm', '/'.join([tmpdir, filenametmp])])
+
+    print('done writing data to hdfs')
+
+
+def saveoneh5filetohdfs(h5file, hdfs_directory, h5data_tmp_dir, h5folds=1):
+    holerange_data, baxh5_attris = splith5file(h5file, h5folds)
+    writeh5partstohdfs(holerange_data, h5data_tmp_dir, hdfs_directory)
+    return baxh5_attris
+
+
+# read text to h5 list-------------------------
+def conv_h5str2h5obj_ori(h5str):
+    name = h5str[1]
+    lines = h5str[0].strip().split("\n")
+
+    moviename = lines[0].strip()
+    holerangestr = lines[1].strip().split(',')
+    holerange = (int(holerangestr[0]), int(holerangestr[1]))
+
+    i = 2
+    datasets = []
+    while i < len(lines):
+
+        if lines[i].startswith('[dataset]'):
+            datasetname = lines[i+1].strip().split('=')[1]
+            datasettype = lines[i+2].strip().split('=')[1]
+            datasetshapestr = lines[i+3].strip().split('=')[1][1:-1].strip().split(',')
+
+            i += 5
+            datavalue = ''
+            line = lines[i].strip()
+            while line != "valueEnd":
+                datavalue += line + ','
+                i += 1
+                line = lines[i].strip()
+            dataarray = numpy.fromstring(datavalue[:-1], dtype=datasettype, sep=',')
+            if datasetshapestr[1] != '':
+                nrow, ncol = int(datasetshapestr[0].strip()), \
+                             int(datasetshapestr[1].strip())
+                dataarray = dataarray.reshape((nrow, ncol))
+            datasets.append(((datasetname, dataarray.dtype), dataarray))
+        i += 1
+
+    if len(datasets) == 1:
+        return (moviename, holerange), datasets[0]
     else:
-        wholeinfo_rdd = None
-        print("baxh5tordd wrong!")
-
-    print('done converting {} to RDD'.format(baxh5file))
-    return wholeinfo_rdd
+        return (moviename, holerange), datasets
 
 
-def convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                  f, datasetname, moviename):
-    sdata = f[datasetname].value
-    dtype = sdata.dtype
-    sshape = sdata.shape
-
-    scparas = list()
-    if len(sshape) == 1:
-        for holess in hole_splitspots:
-            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1]-1])),
-                            ((datasetname, dtype), sdata[holess[0]:holess[1]])))
+def conv_h5str2h5obj(h5str):
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
     else:
-        for holess in hole_splitspots:
-            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1]-1])),
-                            ((datasetname, dtype), sdata[holess[0]:holess[1], :])))
+        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+    with open(TEMP_OUTPUT_FOLDER + '/test.txt', 'w') as wf:
+        wf.write(h5str[1].strip())
 
-    return sc.parallelize(scparas, numpartitions)
+    moivename = ''
+    holerange = None
+    with open(TEMP_OUTPUT_FOLDER + '/test.txt') as rf:
+        moviename = next(rf).strip()
+        holerangestr = next(rf).strip().split(',')
+        holerange = (int(holerangestr[0]), int(holerangestr[1]))
 
-
-def convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                        basecall_splitspots, f, datasetname, moviename):
-    sdata = f[datasetname].value
-    dtype = sdata.dtype
-    sshape = sdata.shape
-
-    scparas = list()
-    if len(sshape) == 1:
-        for i in range(0, len(hole_splitspots)):
-            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
-                                         holenumbers[hole_splitspots[i][1]-1])),
-                            ((datasetname, dtype),
-                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1]])))
+        line = next(rf)
+        datasets = []
+        while line is not None:
+            if line.startswith('[dataset]'):
+                datasetname = next(rf).strip().split('=')[1]
+                datasettype = next(rf).strip().split('=')[1]
+                datasetshapestr = next(rf).strip().split('=')[1][1:-1].strip().split(',')
+                next(rf)
+                datavalue = ''
+                line = next(rf).strip()
+                while line != "valueEnd":
+                    datavalue += line + ','
+                    line = next(rf).strip()
+                dataarray = numpy.fromstring(datavalue[:-1], dtype=datasettype, sep=',')
+                if datasetshapestr[1] != '':
+                    nrow, ncol = int(datasetshapestr[0].strip()), \
+                                 int(datasetshapestr[1].strip())
+                    dataarray = dataarray.reshape((nrow, ncol))
+                datasets.append(((datasetname, dataarray.dtype), dataarray))
+            try:
+                line = next(rf)
+            except StopIteration:
+                line = None
+    os.remove(TEMP_OUTPUT_FOLDER + '/test.txt')
+    if len(datasets) == 1:
+        return (moviename, holerange), datasets[0]
     else:
-        for i in range(0, len(hole_splitspots)):
-            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
-                                         holenumbers[hole_splitspots[i][1]-1])),
-                            ((datasetname, dtype),
-                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1], :])))
-    return sc.parallelize(scparas, numpartitions)
+        return (moviename, holerange), datasets
 
 
-def convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                   f, datasetname, moviename):
-    regiondata = f[datasetname].value
-    dtype = regiondata.dtype
-    sshape = regiondata.shape
+# add attris to h5obj--------------------------
+def addH5Attris(h5obj, h5attris_dict):
+    moviename, holerange = h5obj[0]
+    h5datasets = h5obj[1]
 
-    scparas = list()
-    locs_start = 0
-    for holess in hole_splitspots[:-1]:
-        holenumbers_tmp = set(holenumbers[holess[0]:holess[1]])
-        for i in range(locs_start, sshape[0]):
-            if regiondata[i, 0] not in holenumbers_tmp:
-                scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1]-1])),
-                                ((datasetname, dtype), regiondata[locs_start:i, :])))
-                locs_start = i
-                break
-    scparas.append(((moviename, (holenumbers[hole_splitspots[-1][0]],
-                                 holenumbers[hole_splitspots[-1][1]-1])),
-                    ((datasetname, dtype), regiondata[locs_start:, :])))
-    return sc.parallelize(scparas, numpartitions)
+    for h5key in h5attris_dict.keys():
+        amoviename = h5key[0]
+        arange = h5key[1]
+        if moviename == amoviename and holerange[0] >= arange[0] and holerange[1] <= arange[1]:
+            return (moviename, holerange), (h5datasets, h5attris_dict[h5key])
+    return h5obj
 
 
 def get_basecall_range_of_each_holesblock(hole_splitspots, holenumbers, holerange):
@@ -1058,6 +1203,7 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
 
 
 def basemods_pipe():
+    now = time.time()
     abs_dir = os.path.dirname(os.path.realpath(__file__))
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
@@ -1082,15 +1228,27 @@ def basemods_pipe():
         for filename in fnmatch.filter(filenames, '*.metadata.xml'):
             metaxml_filenames.append(os.path.join(root, filename))
 
-    # FIXME: will this (append, union) work when the file is large/the memory is not enough?
     # baxh5 file operations
-    baxh5_folds = BAXH5_FOLDS
-    baxh5_numpartitions = BAXH5_FOLDS
-    baxh5rdds = []
-    # todo: change forloop  to multiprocess
-    for filename in baxh5_filenames:
-        baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
-    all_baxh5rdds = sc.union(baxh5rdds)
+    if isNeedtoSave2hdfs:
+        baxh5_attris = {}
+        baxh5_folds = BAXH5_FOLDS
+        # create hdfs directory
+        stdout, stderror = run_cmd(['hdfs', 'dfs', '-mkdir', hdfs_dir])
+        for filename in baxh5_filenames[:]:
+            baxh5_attris.update(saveoneh5filetohdfs(filename, hdfs_dir,
+                                                    cell_data_tmp_dir, baxh5_folds))
+
+        broad_bax5_attris = sc.broadcast(baxh5_attris)
+        del baxh5_attris
+
+    step1 = time.time() - now
+    print('transform data to hdfs cost {}'.format(step1))
+
+    # read baxh5.txt to RDD
+    wholeh5files = sc.wholeTextFiles('hdfs://' + hdfs_dir, 1)
+
+    all_baxh5rdds = wholeh5files.map(lambda x: conv_h5str2h5obj(x))\
+        .map(lambda x: addH5Attris(x, broad_bax5_attris.value))
 
     # cmph5 file operations
     # FIXME: 1. for the rdd contains every reads in cmph5, which is better: sort first and then group, or
@@ -1143,6 +1301,9 @@ def basemods_pipe():
     aligned_reads_rdd.unpersist()
 
     SparkContext.stop(sc)
+
+    alltimecost = time.time() - now
+    print('all cost {}'.format(alltimecost))
 
 
 if __name__ == '__main__':
