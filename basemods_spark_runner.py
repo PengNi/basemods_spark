@@ -381,6 +381,7 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
         wholeinfo_rdd = None
         print("baxh5tordd wrong!")
 
+    print('done converting {} to RDD'.format(baxh5file))
     return wholeinfo_rdd
 
 
@@ -557,7 +558,11 @@ def writebaxh5(filecontent, filepath):
     :return:
     """
     f = h5py.File(filepath, "w")
-    h5data, h5attr = filecontent
+    if isinstance(filecontent, tuple):
+        h5data, h5attr = filecontent
+    else:
+        h5data = filecontent
+        h5attr = []
     for datasetinfo in h5data:
         datasetattr, datasetdata = datasetinfo
         datasetname = datasetattr[0]
@@ -1053,7 +1058,6 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
 
 
 def basemods_pipe():
-
     abs_dir = os.path.dirname(os.path.realpath(__file__))
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
