@@ -383,6 +383,7 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
         wholeinfo_rdd = None
         print("baxh5tordd wrong!")
 
+    wholeinfo_rdd.map(lambda x: 1).count()
     print('done converting {} to RDD'.format(baxh5file))
     return wholeinfo_rdd
 
