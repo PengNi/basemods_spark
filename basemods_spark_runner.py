@@ -18,8 +18,6 @@ shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
 parameters_config = 'parameters.conf'
 
-hdfs_dir = '/basemodstmp'
-
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
 refMaxLength = 3e12
@@ -34,18 +32,22 @@ def getParametersFromFile(config_file):
     conf = ConfigParser.ConfigParser()
     conf.read(config_file)
 
-    global TEMP_OUTPUT_FOLDER
     global SMRT_ANALYSIS_HOME
+    global TEMP_OUTPUT_FOLDER
 
     global REFERENCE_DIR
     global ref_filename
     global ref_sa_filename
-
     global DATA_DIR
 
-    global kernel_num
+    global hdfs_data_dir
+    global hdfs_namenode_name
+    global hdfs_port
+
     global BAXH5_FOLDS
     global REF_CHUNKS_FACTOR
+
+    global kernel_num
     global methylation_types
 
     TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
@@ -54,12 +56,16 @@ def getParametersFromFile(config_file):
     REFERENCE_DIR = conf.get("filepath", "REFERENCE_DIR")
     ref_filename = conf.get("filepath", "ref_filename")
     ref_sa_filename = conf.get("filepath", "ref_sa_filename")
-
     DATA_DIR = conf.get("filepath", "cell_data_dir")
 
-    kernel_num = conf.getint("parameter", "kernel_num")
+    hdfs_data_dir = conf.get('filepath', 'hdfs_data_dir')
+    hdfs_namenode_name = conf.get('parameter', 'hdfs_namenode_name')
+    hdfs_port = conf.getint('parameter', 'hdfs_port')
+
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
     REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
+
+    kernel_num = conf.getint("parameter", "kernel_num")
     methylation_types = conf.get("parameter", "methylation_types")
     return
 
@@ -337,72 +343,72 @@ def run_cmd(args_list):
     return output, errors
 
 
-def baxh5toRDDtohdfs(hdfs_dir, sc, baxh5file, folds=3, numpartitions=3):
-    f = h5py.File(baxh5file, "r")
-    holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
-    if folds > len(holenumbers):
-        folds = len(holenumbers)
-    hole_splitspots = split_holenumbers(holenumbers, folds)
-    hole2range = makeOffsetsDataStructure(f)  # todo: how to make it faster
-    basecall_splitspots = get_basecall_range_of_each_holesblock(hole_splitspots,
-                                                                holenumbers, hole2range)
-    moviename = get_movieName(f)
-    theholerange = (min(holenumbers), max(holenumbers))
-    file_prefix = moviename + '.' + str(theholerange[0]) + '-' + str(theholerange[1])
+# def baxh5toRDDtohdfs(hdfs_dir, sc, baxh5file, folds=3, numpartitions=3):
+#     f = h5py.File(baxh5file, "r")
+#     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
+#     if folds > len(holenumbers):
+#         folds = len(holenumbers)
+#     hole_splitspots = split_holenumbers(holenumbers, folds)
+#     hole2range = makeOffsetsDataStructure(f)  # todo: how to make it faster
+#     basecall_splitspots = get_basecall_range_of_each_holesblock(hole_splitspots,
+#                                                                 holenumbers, hole2range)
+#     moviename = get_movieName(f)
+#     theholerange = (min(holenumbers), max(holenumbers))
+#     file_prefix = moviename + '.' + str(theholerange[0]) + '-' + str(theholerange[1])
+#
+#     # datasets in PulseData/BaseCalls/ZMW
+#     # FIXME: use (for key in f['']) or (for key in f[''].keys())?
+#     for key in f['/PulseData/BaseCalls/ZMW'].keys():
+#         pathtmp = '/PulseData/BaseCalls/ZMW/' + str(key)
+#         rddtmp = convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
+#                                                holenumbers, f,
+#                                                pathtmp,
+#                                                moviename)
+#         name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
+#         hdfspath = hdfs_dir + '/' + name_prefix
+#         rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
+#
+#     # datasets in PulseData/BaseCalls/ZMWMetrics
+#     for key in f['/PulseData/BaseCalls/ZMWMetrics']:
+#         pathtmp = '/PulseData/BaseCalls/ZMWMetrics/' + str(key)
+#         rddtmp = convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
+#                                                holenumbers, f,
+#                                                pathtmp,
+#                                                moviename)
+#         name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
+#         hdfspath = hdfs_dir + '/' + name_prefix
+#         rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
+#
+#     # datasets in PulseData/BaseCalls
+#     for key in f['/PulseData/BaseCalls']:
+#         if not (str(key) == 'ZMWMetrics' or str(key) == 'ZMW'):
+#             pathtmp = '/PulseData/BaseCalls/' + str(key)
+#             rddtmp = convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots,
+#                                                          holenumbers, basecall_splitspots, f,
+#                                                          pathtmp,
+#                                                          moviename)
+#             name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
+#             hdfspath = hdfs_dir + '/' + name_prefix
+#             rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
+#
+#     # PulseData/Regions
+#     pathtmp = '/PulseData/Regions'
+#     name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
+#     hdfspath = hdfs_dir + '/' + name_prefix
+#     convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots,
+#                                    holenumbers, f, pathtmp, moviename)\
+#         .map(h5obj2h5str).saveAsTextFile(hdfspath)
+#
+#     # baxh5 attrs
+#     baxh5attrs = get_baxh5_attrs(f)
+#
+#     f.close()
+#
+#     print('done converting {} to RDD, then to HDFS'.format(baxh5file))
+#     return {(moviename, (min(holenumbers), max(holenumbers))): baxh5attrs}
 
-    # datasets in PulseData/BaseCalls/ZMW
-    # FIXME: use (for key in f['']) or (for key in f[''].keys())?
-    for key in f['/PulseData/BaseCalls/ZMW'].keys():
-        pathtmp = '/PulseData/BaseCalls/ZMW/' + str(key)
-        rddtmp = convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                               holenumbers, f,
-                                               pathtmp,
-                                               moviename)
-        name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
-        hdfspath = hdfs_dir + '/' + name_prefix
-        rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
 
-    # datasets in PulseData/BaseCalls/ZMWMetrics
-    for key in f['/PulseData/BaseCalls/ZMWMetrics']:
-        pathtmp = '/PulseData/BaseCalls/ZMWMetrics/' + str(key)
-        rddtmp = convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                               holenumbers, f,
-                                               pathtmp,
-                                               moviename)
-        name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
-        hdfspath = hdfs_dir + '/' + name_prefix
-        rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
-
-    # datasets in PulseData/BaseCalls
-    for key in f['/PulseData/BaseCalls']:
-        if not (str(key) == 'ZMWMetrics' or str(key) == 'ZMW'):
-            pathtmp = '/PulseData/BaseCalls/' + str(key)
-            rddtmp = convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots,
-                                                         holenumbers, basecall_splitspots, f,
-                                                         pathtmp,
-                                                         moviename)
-            name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
-            hdfspath = hdfs_dir + '/' + name_prefix
-            rddtmp.map(h5obj2h5str).saveAsTextFile(hdfspath)
-
-    # PulseData/Regions
-    pathtmp = '/PulseData/Regions'
-    name_prefix = file_prefix + '.' + pathtmp.replace('/', '')
-    hdfspath = hdfs_dir + '/' + name_prefix
-    convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots,
-                                   holenumbers, f, pathtmp, moviename)\
-        .map(h5obj2h5str).saveAsTextFile(hdfspath)
-
-    # baxh5 attrs
-    baxh5attrs = get_baxh5_attrs(f)
-
-    f.close()
-
-    print('done converting {} to RDD, then to HDFS'.format(baxh5file))
-    return {(moviename, (min(holenumbers), max(holenumbers))): baxh5attrs}
-
-
-def baxh5toRDDtohdfs2(hdfs_dir, sc, baxh5file, folds=1, numpartitions=3):
+def baxh5toRDDtohdfs(hdfs_dir, sc, baxh5file, folds=1, numpartitions=3):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
     if folds > len(holenumbers):
@@ -449,11 +455,9 @@ def baxh5toRDDtohdfs2(hdfs_dir, sc, baxh5file, folds=1, numpartitions=3):
     f.close()
 
     hdfspath = hdfs_dir + '/' + file_prefix
-    if len(rdds) == 1:
-        rdds[0].map(h5obj2h5str).filter(lambda x: x != '').saveAsTextFile(hdfspath)
-    elif len(rdds) > 1:
+    if len(rdds) > 1:
         # FIXME: may be need a repartition
-        sc.union(rdds).map(h5obj2h5str).filter(lambda x: x != '').saveAsTextFile(hdfspath)
+        sc.union(rdds).map(h5obj2h5str).saveAsTextFile(hdfspath)
     else:
         print("baxh5tordd wrong!")
 
@@ -461,6 +465,7 @@ def baxh5toRDDtohdfs2(hdfs_dir, sc, baxh5file, folds=1, numpartitions=3):
     return {(moviename, (min(holenumbers), max(holenumbers))): baxh5attrs}
 
 
+# FIXME: need to be faster
 def h5obj2h5str(h5obj):
     def ndarrayrow2str(arow):
         return ','.join(map(str, arow))
@@ -478,10 +483,6 @@ def h5obj2h5str(h5obj):
     datasetvalue = val[1]
     datasetshape = datasetvalue.shape
 
-    # FIXME: now i'm ignoring (3+)D array
-    if len(datasetshape) >= 3:
-        return ''
-
     valuestr += '[dataset]\n'
     valuestr += 'name=' + datasetname + '\n'
     valuestr += 'type=' + str(datasettype) + '\n'
@@ -489,8 +490,8 @@ def h5obj2h5str(h5obj):
     valuestr += 'valuestart\n'
     if len(datasetshape) == 1:
         valuestr += '\n'.join(map(str, datasetvalue))
-    elif len(datasetshape) == 2:
-        valuestr += '\n'.join(map(ndarrayrow2str, datasetvalue))
+    else:
+        valuestr += '\n'.join(map(str, datasetvalue.flatten()))
     valuestr += '\nvalueEnd'
 
     return valuestr
@@ -678,28 +679,21 @@ def flatmapTextFile(h5str):
     return h5str.strip().split('\n')
 
 
+# FIXME: need to be faster
 def h5str2h5obj_onedataset(h5strlist):
     moviename = h5strlist[0].strip()
     holerangestr = h5strlist[1].strip().split(',')
     holerange = (int(holerangestr[0]), int(holerangestr[1]))
-
-    i = 2
-    datasetname = h5strlist[i + 1].strip().split('=')[1]
-    datasettype = h5strlist[i + 2].strip().split('=')[1]
-    datasetshapestr = h5strlist[i + 3].strip().split('=')[1][1:-1].strip().split(',')
-
-    i += 5
-    datavalue = ''
-    line = h5strlist[i].strip()
-    while line != "valueEnd":
-        datavalue += line + ','
-        i += 1
-        line = h5strlist[i].strip()
-    dataarray = numpy.fromstring(datavalue[:-1], dtype=datasettype, sep=',')
-    if datasetshapestr[1] != '':
-        nrow, ncol = int(datasetshapestr[0].strip()), \
-                     int(datasetshapestr[1].strip())
-        dataarray = dataarray.reshape((nrow, ncol))
+    # h5strlist[2] = 'dataset'
+    datasetname = h5strlist[3].strip().split('=')[1]
+    datasettype = h5strlist[4].strip().split('=')[1]
+    datasetshapestr = h5strlist[5].strip().split('=')[1][1:-1].strip().split(',')
+    # h5strlist[6] = 'valueStart'
+    if datasetshapestr[1] == '':
+        dataarray = numpy.array(h5strlist[7:-1], dtype=datasettype)
+    else:
+        dataarray = numpy.array(h5strlist[7:-1], dtype=datasettype)\
+            .reshape(tuple(map(int, datasetshapestr)))
     return (moviename, holerange), ((datasetname, dataarray.dtype), dataarray)
 
 
@@ -1344,14 +1338,14 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Reading H5 file to hdfs")
     sc = SparkContext(conf=conf)
     # create hdfs directory
-    stdout, stderror = run_cmd(['hdfs', 'dfs', '-mkdir', hdfs_dir])
+    stdout, stderror = run_cmd(['hdfs', 'dfs', '-mkdir', hdfs_data_dir])
 
     # baxh5 file operations
     baxh5_attris = {}
     baxh5_folds = BAXH5_FOLDS
     for filename in baxh5_filenames:
-        baxh5_attris.update(baxh5toRDDtohdfs2(hdfs_dir, sc, filename, baxh5_folds,
-                                              baxh5_folds))
+        baxh5_attris.update(baxh5toRDDtohdfs(hdfs_data_dir, sc, filename, baxh5_folds,
+                                             baxh5_folds))
     SparkContext.stop(sc)
 
     step1 = time.time() - now
@@ -1362,10 +1356,9 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMods pipeline")
     sc = SparkContext(conf=conf)
 
-    # broad_bax5_attris = sc.broadcast(baxh5_attris)
-    # del baxh5_attris
-    baxh5_attris = {}
+    # attris
     broad_bax5_attris = sc.broadcast(baxh5_attris)
+    del baxh5_attris
 
     # files need to be shared in each node
     sc.addFile('/'.join([REFERENCE_DIR, ref_filename]))
@@ -1374,9 +1367,9 @@ def basemods_pipe():
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
     # read baxh5.txt to RDD
-    pdhdfs = hdfs('127.0.0.1', 9000)
+    pdhdfs = hdfs(hdfs_namenode_name, hdfs_port)
     baxh5rdds = []
-    for fpath in pdhdfs.list_directory(hdfs_dir):
+    for fpath in pdhdfs.list_directory(hdfs_data_dir):
         baxh5rdds.append(sc.wholeTextFiles(fpath['path'])
                          .map(lambda (x, y): flatmapTextFile(y))
                          .map(h5str2h5obj_onedataset)
