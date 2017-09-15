@@ -1335,6 +1335,7 @@ def basemods_pipe():
         for filename in fnmatch.filter(filenames, '*.metadata.xml'):
             metaxml_filenames.append(os.path.join(root, filename))
 
+    SparkContext.setSystemProperty('spark.executor.memory', '4g')
     conf = SparkConf().setAppName("Reading H5 file to hdfs")
     sc = SparkContext(conf=conf)
     # create hdfs directory
@@ -1352,7 +1353,6 @@ def basemods_pipe():
     print('transform data to hdfs cost {}'.format(step1))
 
     # start basmods pipeline---------------------------------------------
-    SparkContext.setSystemProperty('spark.executor.memory', '4g')
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMods pipeline")
     sc = SparkContext(conf=conf)
 
