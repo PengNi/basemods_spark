@@ -33,7 +33,7 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 3. #### Python 2.x and required Python libraries
 
-    If your OS doesn't have python 2.x installed, you should install it. Install package *py4j*, *pyspark* to your python environment if you need to.
+    If your OS doesn't have python 2.x installed, you should install it. Install *h5py*, *numpy*, *pydoop* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
 
 
 ### How to use basemods_spark
@@ -50,9 +50,18 @@ chmod +x basemods_spark/scripts/cmph5_operations.sh
 chmod +x basemods_spark/scripts/mods_operations.sh
 ```
 
-2. #### use spark-submit
+2. #### start HDFS
 
+```sh
+$HADOOP_HOME/sbin/start-dfs.sh
+```
 
-3. #### parameters in configure file
+3. #### use spark-submit
+
+```sh
+$SPARK_HOME/bin/spark-submit basemods_spark_runner.py
+```
+
+4. #### parameters in configure file
 
 
