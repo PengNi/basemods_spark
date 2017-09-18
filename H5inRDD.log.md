@@ -25,17 +25,6 @@
 > Hint: if you do some tests, please log the time, the result of your tests and how you did it.
 
 
-### Solution 2. use a storage system/Network File System
-
-#### description
-> build a NFS in the cluster, so that each worker node can read data from the same directory and we only need one copy of the data.
-
-#### limitations
-> For now we don't know how to build a NFS, and may be this solution is not suitable for all situations.
-
-#### tests
-> Hint: if you do some tests, please log the time, the result of your tests and how you did it.
-
 ### Solution 3. Copy all the data to each worker node
 
 #### description
@@ -45,7 +34,7 @@
 > It will make the job a lot easier, but it seems that it is not smart enough. It costs a great deal of space of hard disks.
 
 #### tests
-> 
+> Hint: if you do some tests, please log the time, the result of your tests and how you did it.
 
 
 ### Solution 4. Transforming H5 file format 
