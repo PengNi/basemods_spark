@@ -47,7 +47,7 @@ def getParametersFromFile(config_file):
     global BAXH5_FOLDS
     global REF_CHUNKS_FACTOR
 
-    global kernel_num
+    global core_num
     global methylation_types
 
     TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
@@ -65,7 +65,7 @@ def getParametersFromFile(config_file):
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
     REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
 
-    kernel_num = conf.getint("parameter", "kernel_num")
+    core_num = conf.getint("parameter", "core_num")
     methylation_types = conf.get("parameter", "methylation_types")
     return
 
@@ -787,7 +787,7 @@ def basemods_pipeline_baxh5_operations(keyval):
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
     baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
-                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {kernel_num}".\
+                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {core_num}".\
         format(baxh5_operations_sh=baxh5_shell_file_path,
                seymour_home=SMRT_ANALYSIS_HOME,
                temp_output_folder=TEMP_OUTPUT_FOLDER,
@@ -795,7 +795,7 @@ def basemods_pipeline_baxh5_operations(keyval):
                reference_filepath=reference_path,
                referencesa_filepath=referencesa_path,
                cmph5_filename=cmph5file,
-               kernel_num=kernel_num)
+               core_num=core_num)
     baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
     baxh5_out, baxh5_error = baxh5_process.communicate()
 
@@ -1015,7 +1015,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         # cmph5 operations (sort, repack, computeModifications)
         cmph5_operations = "{cmph5_operations_sh} {seymour_home} {temp_output_folder} {cmph5_filepath}" \
                            " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename}" \
-                           " {kernel_num} {methylation_type}"\
+                           " {core_num} {methylation_type}"\
             .format(cmph5_operations_sh=cmph5_shell_file_path,
                     seymour_home=SMRT_ANALYSIS_HOME,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
@@ -1024,7 +1024,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                     reference_filepath=reference_path,
                     gff_filename=tmpcOnrEX_gff,
                     csv_filename=tmpcc5Wn6_csv,
-                    kernel_num=kernel_num,
+                    core_num=core_num,
                     methylation_type=methylation_types)
         
         cmph5_process = Popen(shlex.split(cmph5_operations), stdout=PIPE, stderr=PIPE)
