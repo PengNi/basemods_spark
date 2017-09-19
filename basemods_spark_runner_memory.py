@@ -8,6 +8,7 @@ import shlex
 import os
 import fnmatch
 import numpy
+import hashlib
 import ConfigParser
 import xml.etree.ElementTree as ET
 
@@ -18,6 +19,15 @@ parameters_config = 'parameters.conf'
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
+
+# for file name
+SPACE_ALTER = "_"
+
+# contig attri names
+SEQUENCE = 'sequence'
+SEQUENCE_LENGTH = 'seqLength'
+SEQUENCE_MD5 = 'md5'
+
 refMaxLength = 3e12
 COLUMNS = 60
 PAD = 15
@@ -34,29 +44,29 @@ def getParametersFromFile(config_file):
     global SMRT_ANALYSIS_HOME
 
     global REFERENCE_DIR
-    global ref_filename
-    global ref_sa_filename
+    global REF_FILENAME
+    global REF_SA_FILENAME
 
-    global DATA_DIR
+    global CELL_DATA_DIR
 
-    global core_num
+    global CORE_NUM
     global BAXH5_FOLDS
     global REF_CHUNKS_FACTOR
-    global methylation_types
+    global METHYLATION_TYPES
 
     TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
     SMRT_ANALYSIS_HOME = conf.get("filepath", "SMRT_ANALYSIS_HOME")
 
     REFERENCE_DIR = conf.get("filepath", "REFERENCE_DIR")
-    ref_filename = conf.get("filepath", "ref_filename")
-    ref_sa_filename = conf.get("filepath", "ref_sa_filename")
+    REF_FILENAME = conf.get("filepath", "REF_FILENAME")
+    REF_SA_FILENAME = conf.get("filepath", "REF_SA_FILENAME")
 
-    DATA_DIR = conf.get("filepath", "cell_data_dir")
+    CELL_DATA_DIR = conf.get("filepath", "CELL_DATA_DIR")
 
-    core_num = conf.getint("parameter", "core_num")
+    CORE_NUM = conf.getint("parameter", "CORE_NUM")
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
     REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
-    methylation_types = conf.get("parameter", "methylation_types")
+    METHYLATION_TYPES = conf.get("parameter", "METHYLATION_TYPES")
     return
 
 
@@ -80,9 +90,10 @@ def _getRefInfoFromFastaFile(filepath):
     for contiginfo in contiginfos:
         # contiginfo_dict[contiginfo.getContigName()] = contiginfo
         contiginfo_dict[contiginfo.getContigName()] = {}
-        contiginfo_dict[contiginfo.getContigName()]['sequence'] = contiginfo.getSequence()
-        contiginfo_dict[contiginfo.getContigName()]['seqLength'] = contiginfo.getSeqLength()
-        contiginfo_dict[contiginfo.getContigName()]['md5'] = contiginfo.getMd5()
+        contiginfo_dict[contiginfo.getContigName()][SEQUENCE] = contiginfo.getSequence()
+        contiginfo_dict[contiginfo.getContigName()][SEQUENCE_LENGTH] = contiginfo.getSeqLength()
+        contiginfo_dict[contiginfo.getContigName()][SEQUENCE_MD5] = contiginfo.getMd5()
+    del contiginfos
     return contiginfo_dict
 
 
@@ -102,9 +113,9 @@ class FastaInfo:
             sequencetmp = ""
             for line in rf:
                 if line.startswith(">"):
-                    # contigTmp.setSequence(sequencetmp)
+                    contigTmp.setSequence(sequencetmp)
                     contigTmp.setSeqLength(len(sequencetmp))
-                    contigTmp.setMd5("")
+                    contigTmp.setMd5(hashlib.md5(sequencetmp).hexdigest())
                     self._contigs.append(contigTmp)
 
                     sequencetmp = ""
@@ -116,7 +127,7 @@ class FastaInfo:
             # the last contig
             contigTmp.setSequence(sequencetmp)
             contigTmp.setSeqLength(len(sequencetmp))
-            contigTmp.setMd5("")
+            contigTmp.setMd5(hashlib.md5(sequencetmp).hexdigest())
             self._contigs.append(contigTmp)
 
     def getContigs(self):
@@ -317,6 +328,11 @@ def get_movieName(baxh5file):
     return movieNameString
 
 
+# name ref contig file
+def name_reference_contig_file(ref_name, contigname):
+    ref_prefix, ref_ext = os.path.splitext(ref_name)
+    contigname = contigname.replace(' ', SPACE_ALTER)
+    return ref_prefix + '.' + contigname + ref_ext
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
@@ -383,7 +399,6 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
         wholeinfo_rdd = None
         print("baxh5tordd wrong!")
 
-    wholeinfo_rdd.map(lambda x: 1).count()
     print('done converting {} to RDD'.format(baxh5file))
     return wholeinfo_rdd
 
@@ -501,10 +516,10 @@ def basemods_pipeline_baxh5_operations(keyval):
     """
     fileinfo, filecontent = keyval
 
-    name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', '_')
+    name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', SPACE_ALTER)
     baxh5file = name_prefix + ".bax.h5"
-    reference_path = SparkFiles.get(ref_filename)
-    referencesa_path = SparkFiles.get(ref_sa_filename)
+    reference_path = SparkFiles.get(REF_FILENAME)
+    referencesa_path = SparkFiles.get(REF_SA_FILENAME)
     # metadataxml_path = SparkFiles.get(metadataxml_name)
     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
 
@@ -536,7 +551,7 @@ def basemods_pipeline_baxh5_operations(keyval):
                reference_filepath=reference_path,
                referencesa_filepath=referencesa_path,
                cmph5_filename=cmph5file,
-               core_num=core_num)
+               core_num=CORE_NUM)
     baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
     baxh5_out, baxh5_error = baxh5_process.communicate()
 
@@ -591,7 +606,7 @@ def split_reads_in_cmph5(cmph5_filepath):
 
     :param cmph5_filepath:
     :return: info about each read, [(key, value), ...]
-    key: ((reffullname, refmd5), target_start, target_end)
+    key: (reffullname, target_start, target_end)
     value: dict(), {'/../AlnIndex': a line of AlnIndex, 'AlnArray': numpy.array,
     'DeletionQV': numpy.array, ...}
     """
@@ -601,16 +616,14 @@ def split_reads_in_cmph5(cmph5_filepath):
     aI = cmph5[ch5Format.ALN_INDEX]
     aIlen = aI.shape[0]
     refId2refFullName = refGroupId2RefInfoIdentifier(cmph5, ch5Format)
-    # FIXME: it is better to cal md5 in getRefInfoFromFastaFiles(), but don't know how
-    refId2refMd5 = refGroupId2RefInfoIdentifier(cmph5, ch5Format, "MD5")
+    # refId2refMd5 = refGroupId2RefInfoIdentifier(cmph5, ch5Format, "MD5")
     movieId2MovieInfo = MovieId2MovieInfo(cmph5, ch5Format)
 
     reads_rdd = [None] * aIlen
     for i in range(0, aIlen):
         alnIndexTmp = aI[i, :]
 
-        read_key = ((refId2refFullName[alnIndexTmp[ch5Format.REF_ID]],
-                     refId2refMd5[alnIndexTmp[ch5Format.REF_ID]]),
+        read_key = (refId2refFullName[alnIndexTmp[ch5Format.REF_ID]],
                     alnIndexTmp[ch5Format.TARGET_START],
                     alnIndexTmp[ch5Format.TARGET_END])
 
@@ -723,13 +736,13 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     """
 
     :param keyval:
-    key: ((reffullname, refmd5), (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
+    key: (reffullname, (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
     val: [read_value1, read_value2, ...] (read_value is the same as value in read_keyval)
     :param moviechemistry:
     :param refinfo:
     :return: (reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, }))
     """
-    ((reffullname, refmd5), (ref_start, ref_end, ref_folds)) = keyval[0]
+    (reffullname, (ref_start, ref_end, ref_folds)) = keyval[0]
     reads_info = list(keyval[1])
 
     if len(reads_info) > 0:
@@ -739,19 +752,20 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
             os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
 
         # setting paths and variables
-        name_prefix = reffullname.replace(' ', '_') + '.' + str(ref_start) + '-' + str(ref_end)
-        reference_path = SparkFiles.get(ref_filename)
+        contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
+        reference_path = SparkFiles.get(contig_filename)
         cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
+        name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
         cmph5_filename = name_prefix + ".cmp.h5"
         cmph5path = '/'.join([TEMP_OUTPUT_FOLDER, cmph5_filename])
 
-        tmpcOnrEX_gff = name_prefix + ".tmpcOnrEX.gff"
-        tmpcc5Wn6_csv = name_prefix + ".tmpcc5Wn6.csv"
+        modification_gff = name_prefix + ".modification.gff"
+        modification_csv = name_prefix + ".modification.csv"
 
         refchunkinfo = ','.join(["1", str(ref_start), str(ref_end), str(ref_folds)])
 
         # writing cmph5 file
-        writecmph5(cmph5path, reads_info, reffullname, refmd5, refinfo, moviechemistry)
+        writecmph5(cmph5path, reads_info, reffullname, refinfo, moviechemistry)
 
         # cmph5 operations (sort, repack, computeModifications)
         cmph5_operations = "{cmph5_operations_sh} {seymour_home} {temp_output_folder} {cmph5_filepath}" \
@@ -763,10 +777,10 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                     cmph5_filepath=cmph5path,
                     ref_chunk_info=refchunkinfo,
                     reference_filepath=reference_path,
-                    gff_filename=tmpcOnrEX_gff,
-                    csv_filename=tmpcc5Wn6_csv,
-                    core_num=core_num,
-                    methylation_type=methylation_types)
+                    gff_filename=modification_gff,
+                    csv_filename=modification_csv,
+                    core_num=CORE_NUM,
+                    methylation_type=METHYLATION_TYPES)
 
         cmph5_process = Popen(shlex.split(cmph5_operations), stdout=PIPE, stderr=PIPE)
         cmph5_out, cmph5_error = cmph5_process.communicate()
@@ -780,8 +794,8 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                              " stderr: {}".format(cmph5_out, cmph5_error))
         else:
             print("\ncmph5 process logging:\n stdout:{} \n".format(cmph5_out))
-            gff_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcOnrEX_gff])
-            csv_filepath = '/'.join([TEMP_OUTPUT_FOLDER, tmpcc5Wn6_csv])
+            gff_filepath = '/'.join([TEMP_OUTPUT_FOLDER, modification_gff])
+            csv_filepath = '/'.join([TEMP_OUTPUT_FOLDER, modification_csv])
 
             gffContent, csvContent = "", ""
             with open(gff_filepath) as rf:
@@ -798,7 +812,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         raise ValueError("no reads to form a cmph5 file")
 
 
-def writecmph5(filepath, reads_info, reffullname, refmd5, refinfo, moviechemistry):
+def writecmph5(filepath, reads_info, reffullname, refinfo, moviechemistry):
     DATASET_ALNINDEX = "AlnInfo/AlnIndex"
     DATASET_MOVIEINFO = {"MovieInfo/Name", "MovieInfo/FrameRate", }
     # DATASET_MOVIECHEMISTRY = {"BindingKit", "SequencingKit", "SoftwareVersion", }
@@ -905,11 +919,9 @@ def writecmph5(filepath, reads_info, reffullname, refmd5, refinfo, moviechemistr
     f.create_dataset("RefInfo/ID", dtype="int32",
                      data=[REFINFOID, ])
     f.create_dataset("RefInfo/Length", dtype="int32",
-                     data=[refinfo[reffullname]['seqLength'], ])
-    # f.create_dataset("RefInfo/MD5", dtype=h5py.special_dtype(vlen=str),
-    #                  data=[refinfo[reffullname].getMd5(), ])
+                     data=[refinfo[reffullname][SEQUENCE_LENGTH], ])
     f.create_dataset("RefInfo/MD5", dtype=h5py.special_dtype(vlen=str),
-                     data=[refmd5, ])
+                     data=[refinfo[reffullname][SEQUENCE_MD5], ])
     # add refgroup
     f.create_dataset("RefGroup/ID", dtype="int32",
                      data=[REFGROUPID, ])
@@ -936,7 +948,7 @@ def creat_redundant_reads(read_keyval, ref_splitting_info):
     :param read_keyval:
     :param ref_splitting_info:
     :return: [(key, val), ]
-    key: ((reffullname, refmd5), (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
+    key: (reffullname, (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
     val: the same as value in read_keyval
     """
     # FIXED: classify the reads by covering ref_splitting_range (start, end)
@@ -994,9 +1006,11 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
         os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
 
     # setting paths and variables
-    reference_path = SparkFiles.get(ref_filename)
+    # reference_path = SparkFiles.get(REF_FILENAME)
+    contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
+    reference_path = SparkFiles.get(contig_filename)
     mods_shell_file_path = SparkFiles.get(shell_script_mods)
-    name_prefix = reffullname.replace(' ', '_') + ".modification"
+    name_prefix = reffullname.replace(' ', SPACE_ALTER) + ".modification"
     gfffilename = name_prefix + ".gff"
     csvfilename = name_prefix + ".csv"
     motifs_gff_gz_filename = name_prefix + ".motifs.gff.gz"
@@ -1043,7 +1057,7 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
     GFF_HEADER = "##gff-version 3\n" \
                  "##source ipdSummary.py v2.0\n" \
                  "##source-commandline /.../ipdSummary.py \n" \
-                 "##sequence-region ref000001 1 {}\n".format(refinfo[reffullname]['seqLength'])
+                 "##sequence-region ref000001 1 {}\n".format(refinfo[reffullname][SEQUENCE_LENGTH])
     CSV_HEADER = "refName,tpl,strand,base,score,tMean,tErr,modelPrediction," \
                  "ipdRatio,coverage,frac,fracLow,fracUp\n"
 
@@ -1059,6 +1073,30 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
             wf.write(mods_slice[1]['csv'])
 
 
+# write each contig in a ref_fasta to a single file---------------
+def write_ref_contigs(ref_dir, ref_name, ref_contigs):
+    """
+
+    :param ref_dir:
+    :param ref_name:
+    :param ref_contigs:
+    :return:
+    """
+    contig_filepaths = []
+    for contigkey in ref_contigs.keys():
+        contigname = name_reference_contig_file(ref_name, contigkey)
+        contigpath = '/'.join([ref_dir, contigname])
+        with open(contigpath, 'w') as wf:
+            wf.write('>' + contigkey + '\n')
+            sequence = ref_contigs[contigkey][SEQUENCE]
+            seqLength = ref_contigs[contigkey][SEQUENCE_LENGTH]
+            xsteps = [s for s in range(0, seqLength, COLUMNS)]
+            for i in range(0, len(xsteps)-1):
+                wf.write(sequence[xsteps[i]:xsteps[i+1]] + '\n')
+            wf.write(sequence[xsteps[-1]:seqLength] + '\n')
+            del sequence
+        contig_filepaths.append(contigpath)
+    return contig_filepaths
 # -----------------------------------------------------------------------------------------
 
 
@@ -1070,15 +1108,23 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
-    # files need to be shared in each node
-    sc.addFile('/'.join([REFERENCE_DIR, ref_filename]))
-    sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
+    # ----------files need to be shared in each node
+    # ref----
+    sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
+    # FIXME: need to cal ref_sa file in this script if it was not caled
+    sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
+    # ref contigs----
+    refcontigs = getRefInfoFromFastaFiles(['/'.join([REFERENCE_DIR, REF_FILENAME]), ])
+    contig_filepaths = write_ref_contigs(REFERENCE_DIR, REF_FILENAME, refcontigs)
+    for contig_filepath in contig_filepaths:
+        sc.addFile(contig_filepath)
+    # scipts----
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
     # get all files in cell_data_directory
-    pacbio_data_dir = DATA_DIR
+    pacbio_data_dir = CELL_DATA_DIR
     baxh5_filenames = []
     metaxml_filenames = []
     for root, dirnames, filenames in os.walk(pacbio_data_dir):
@@ -1106,23 +1152,19 @@ def basemods_pipe():
         flatMap(basemods_pipeline_baxh5_operations).\
         persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    # FIXME: x[0][0] is ref's fullname, x[0] is (ref_fullname, ref_md5), check split_reads_in_cmph5()
+    # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
     # reference info to be shared to each node
-    # FIXME: 1. (IMPORTANT) for now, don't know how to cal md5 of a sequence,
-    # FIXME:    so the md5 info can only be carried with each read.
-    # FIXME: 2. keep sequence of the ref in refinfo or not? : not
-    refinfos = sc.broadcast(
-        getRefInfoFromFastaFiles(['/'.join([REFERENCE_DIR, ref_filename]), ]))
+    # FIXME: keep sequence of the ref in refinfo or not? : not
+    refinfos = sc.broadcast(refcontigs)
+    del refcontigs
 
     # get the ref chunks
     ref_splitting_info = {}
     for ref_id in ref_indentifiers_count.keys():
-        # FIXME: ref_id is (ref_fullname, ref_md5), check split_reads_in_cmph5()
-        # FIXME: ref_id[0] is ref's fullname
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
-                                                              refinfos.value[ref_id[0]]['seqLength'])
+                                                              refinfos.value[ref_id][SEQUENCE_LENGTH])
     # adjust ref_splitting_info
     dfactor = REF_CHUNKS_FACTOR
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
@@ -1147,8 +1189,12 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
-    aligned_reads_rdd.unpersist()
 
+    # exit
+    refinfos.destroy()
+    ref_splitting_info.destroy()
+    moviestriple.destroy()
+    aligned_reads_rdd.unpersist()
     SparkContext.stop(sc)
 
 
