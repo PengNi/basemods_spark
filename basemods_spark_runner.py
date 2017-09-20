@@ -391,9 +391,10 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
     if len(rdds) == 1:
         wholeinfo_rdd = rdds[0]
     elif len(rdds) > 1:
-        wholeinfo_rdd = sc.union(rdds) \
+        wholeinfo_rdd = sc.union(rdds)\
             .groupByKey() \
-            .map(lambda (x, y): (x, list(y))) \
+            .coalesce(folds)\
+            .map(lambda (x, y): (x, list(y)))\
             .map(lambda (x, y): (x, (y, baxh5attrs.value)))
     else:
         wholeinfo_rdd = None
@@ -535,9 +536,10 @@ def basemods_pipeline_baxh5_operations(keyval):
     # shutil.copy2(metadataxml_path, TEMP_OUTPUT_FOLDER + "/" + metadataxml_name)
 
     # write baxh5obj to file
-    baxh5_dir = TEMP_OUTPUT_FOLDER + '/baxh5'
-    if not os.path.isdir(baxh5_dir):
-        os.mkdir(baxh5_dir)
+    # baxh5_dir = TEMP_OUTPUT_FOLDER + '/baxh5'
+    # if not os.path.isdir(baxh5_dir):
+    #     os.mkdir(baxh5_dir)
+    baxh5_dir = TEMP_OUTPUT_FOLDER
     baxh5path = baxh5_dir + '/' + baxh5file
     writebaxh5(filecontent, baxh5path)
 
@@ -1169,8 +1171,13 @@ def basemods_pipe():
     dfactor = REF_CHUNKS_FACTOR
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
 
-    adjusted_reads_rdd = aligned_reads_rdd \
-        .flatMap(lambda x: creat_redundant_reads(x, ref_splitting_info.value))
+    chunk_sum = 0
+    for refid in ref_splitting_info.value.keys():
+        chunk_sum += len(ref_splitting_info.value[refid])
+
+    adjusted_reads_rdd = aligned_reads_rdd\
+        .flatMap(lambda x: creat_redundant_reads(x, ref_splitting_info.value))\
+        .partitionBy(chunk_sum)
     cmph5rdd = adjusted_reads_rdd.groupByKey()
 
     # movie info to be shared to each node
@@ -1180,12 +1187,13 @@ def basemods_pipe():
     # FIXME: it was calculated in the "loadPulses (blasr/utils)" step, but the source code
     # FIXME: can't be found, so the FrameRate info can only be carried with every read
     # todo: cal FrameRate
-    modification_rdd = cmph5rdd \
+    modification_rdd = cmph5rdd\
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
-                                                               refinfos.value))
+                                                               refinfos.value))\
+        .partitionBy(len(ref_indentifiers_count))
 
-    motif_rdd = modification_rdd.groupByKey() \
+    motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
