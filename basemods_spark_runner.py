@@ -1118,6 +1118,9 @@ def basemods_pipe():
     contig_filepaths = write_ref_contigs(REFERENCE_DIR, REF_FILENAME, refcontigs)
     for contig_filepath in contig_filepaths:
         sc.addFile(contig_filepath)
+    # del sequence
+    for contig in refcontigs.keys():
+        refcontigs[contig][SEQUENCE] = ''
     # scipts----
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
