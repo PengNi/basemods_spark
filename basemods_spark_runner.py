@@ -759,8 +759,8 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         cmph5_filename = name_prefix + ".cmp.h5"
         cmph5path = '/'.join([TEMP_OUTPUT_FOLDER, cmph5_filename])
 
-        modification_gff = name_prefix + ".modification.gff"
-        modification_csv = name_prefix + ".modification.csv"
+        modification_gff = name_prefix + ".modifications.gff"
+        modification_csv = name_prefix + ".modifications.csv"
 
         refchunkinfo = ','.join(["1", str(ref_start), str(ref_end), str(ref_folds)])
 
@@ -1010,9 +1010,9 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
     reference_path = SparkFiles.get(contig_filename)
     mods_shell_file_path = SparkFiles.get(shell_script_mods)
-    name_prefix = reffullname.replace(' ', SPACE_ALTER) + ".modification"
-    gfffilename = name_prefix + ".gff"
-    csvfilename = name_prefix + ".csv"
+    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    gfffilename = name_prefix + ".modifications.gff"
+    csvfilename = name_prefix + ".modifications.csv"
     motifs_gff_gz_filename = name_prefix + ".motifs.gff.gz"
 
     gfffilepath = '/'.join([TEMP_OUTPUT_FOLDER, gfffilename])
@@ -1141,7 +1141,6 @@ def basemods_pipe():
     baxh5_folds = BAXH5_FOLDS
     baxh5_numpartitions = BAXH5_FOLDS
     baxh5rdds = []
-    # todo: change forloop  to multiprocess
     for filename in baxh5_filenames:
         baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
     all_baxh5rdds = sc.union(baxh5rdds)
@@ -1149,8 +1148,6 @@ def basemods_pipe():
     # cmph5 file operations
     # FIXME: 1. for the rdd contains every reads in cmph5, which is better: sort first and then group, or
     # FIXME:    group first and then sort?
-    # FIXME: 2. keeping "aligned_reads_rdd" in memory saves time, but is a huge waste of memory.
-    # FIXME:    need to figure out how not to use "aligned_reads_rdd" twice, so that can save memory.
     aligned_reads_rdd = all_baxh5rdds.\
         flatMap(basemods_pipeline_baxh5_operations).\
         persist(StorageLevel.MEMORY_AND_DISK_SER)

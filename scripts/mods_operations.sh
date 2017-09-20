@@ -20,7 +20,7 @@ source $SEYMOUR_HOME/etc/setup.sh
 xsl_filepath=$SEYMOUR_HOME/analysis/etc/xsl/brandedGraphReport.xsl
 
 modsgff_filename=${modsgff_filepath##*/}
-fileprefix=$(echo ${modsgff_filename%.modification.gff})
+fileprefix=$(echo ${modsgff_filename%.modifications.gff})
 
 motif_summary_csv_filename="${fileprefix}.motif_summary.csv"
 motif_summary_xml_filename="${fileprefix}.motif_summary.xml"
