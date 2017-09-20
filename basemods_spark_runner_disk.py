@@ -3,6 +3,7 @@
 from pyspark import SparkContext, SparkConf, SparkFiles
 from pyspark.storagelevel import StorageLevel
 from subprocess import Popen, PIPE
+from itertools import groupby
 import h5py
 import shlex
 import os
@@ -338,12 +339,8 @@ def name_reference_contig_file(ref_name, contigname):
 
 
 # ---------------------------------------------------------------------------------
-# FIXME: 1. how to convert a dataset to an rdd without reading the whole dataset into memory?
-# FIXME: 2. 现在的做法是对于每一个dataset都转成一个RDD，然后再用union+groupByKey合并。
-# FIXME:    根据每个key的信息，直接将所有该key的dataset读成rdd里的一个元素，省掉union和group，
-# FIXME:    是不是更好？（可能的情况：这种做法会更快，但会更耗内存？）
-# convert baxh5 to RDD------------------------------------------------
-def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
+# convert baxh5 to list------------------------------------------------
+def split_baxh5(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
     if folds > len(holenumbers):
@@ -353,59 +350,59 @@ def baxh5toRDD(sc, baxh5file, folds=1, numpartitions=3):
     basecall_splitspots = get_basecall_range_of_each_holesblock(hole_splitspots,
                                                                 holenumbers, hole2range)
     moviename = get_movieName(f)
-    # print(hole_splitspots)
 
-    rdds = list()
+    holerange_data = []
 
     # datasets in PulseData/BaseCalls/ZMW
     # FIXME: use (for key in f['']) or (for key in f[''].keys())?
     for key in f['/PulseData/BaseCalls/ZMW']:
-        rdds.append(convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                                  holenumbers, f,
-                                                  '/PulseData/BaseCalls/ZMW/' + str(key),
-                                                  moviename))
+        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
+                                                             '/PulseData/BaseCalls/ZMW/' + str(key),
+                                                             moviename))
 
     # datasets in PulseData/BaseCalls/ZMWMetrics
     for key in f['/PulseData/BaseCalls/ZMWMetrics']:
-        rdds.append(convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots,
-                                                  holenumbers, f,
-                                                  '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
-                                                  moviename))
+        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
+                                                             '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
+                                                             moviename))
 
     # datasets in PulseData/BaseCalls
     for key in f['/PulseData/BaseCalls']:
         if not (str(key) == 'ZMWMetrics' or str(key) == 'ZMW'):
-            rdds.append(convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots,
-                                                            holenumbers, basecall_splitspots, f,
-                                                            '/PulseData/BaseCalls/' + str(key),
-                                                            moviename))
+            holerange_data.extend(convert_dataset_in_basecalls_to_list(hole_splitspots,
+                                                                       holenumbers, basecall_splitspots, f,
+                                                                       '/PulseData/BaseCalls/' + str(key),
+                                                                       moviename))
 
     # PulseData/Regions
-    rdds.append(convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots, holenumbers, f,
-                                               '/PulseData/Regions', moviename))
-
-    # baxh5 attrs
-    baxh5attrs = sc.broadcast(get_baxh5_attrs(f))
-
+    holerange_data.extend(convert_regions_dataset_to_list(hole_splitspots, holenumbers, f,
+                                                          '/PulseData/Regions', moviename))
+    baxh5attrs = get_baxh5_attrs(f)
     f.close()
-    if len(rdds) == 1:
-        wholeinfo_rdd = rdds[0]
-    elif len(rdds) > 1:
-        wholeinfo_rdd = sc.union(rdds)\
-            .groupByKey() \
-            .coalesce(folds)\
-            .map(lambda (x, y): (x, list(y)))\
-            .map(lambda (x, y): (x, (y, baxh5attrs.value)))
-    else:
-        wholeinfo_rdd = None
-        print("baxh5tordd wrong!")
 
-    print('done converting {} to RDD'.format(baxh5file))
-    return wholeinfo_rdd
+    holerange_data_group = group_folds_of_one_baxh5file(holerange_data)
+    del holerange_data
+
+    print('done converting {} to list'.format(baxh5file))
+    return map(lambda x: add_each_fold_the_attris(x, baxh5attrs), holerange_data_group)
 
 
-def convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                  f, datasetname, moviename):
+def add_each_fold_the_attris(x, attrs):
+    return x[0], (x[1], attrs)
+
+
+def group_folds_of_one_baxh5file(holerange_data):
+    group_holerange_data = []
+    for key, group in groupby(sorted(holerange_data), lambda x: x[0]):
+        data_set = []
+        for h5data in group:
+            data_set.append(h5data[1])
+        group_holerange_data.append((key, data_set))
+    return group_holerange_data
+
+
+def convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers,
+                                   f, datasetname, moviename):
     sdata = f[datasetname].value
     dtype = sdata.dtype
     sshape = sdata.shape
@@ -420,11 +417,11 @@ def convert_dataset_in_zmw_to_rdd(sc, numpartitions, hole_splitspots, holenumber
             scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
                             ((datasetname, dtype), sdata[holess[0]:holess[1], :])))
 
-    return sc.parallelize(scparas, numpartitions)
+    return scparas
 
 
-def convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                        basecall_splitspots, f, datasetname, moviename):
+def convert_dataset_in_basecalls_to_list(hole_splitspots, holenumbers,
+                                         basecall_splitspots, f, datasetname, moviename):
     sdata = f[datasetname].value
     dtype = sdata.dtype
     sshape = sdata.shape
@@ -442,11 +439,11 @@ def convert_dataset_in_basecalls_to_rdd(sc, numpartitions, hole_splitspots, hole
                                          holenumbers[hole_splitspots[i][1] - 1])),
                             ((datasetname, dtype),
                              sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1], :])))
-    return sc.parallelize(scparas, numpartitions)
+    return scparas
 
 
-def convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots, holenumbers,
-                                   f, datasetname, moviename):
+def convert_regions_dataset_to_list(hole_splitspots, holenumbers,
+                                    f, datasetname, moviename):
     regiondata = f[datasetname].value
     dtype = regiondata.dtype
     sshape = regiondata.shape
@@ -464,7 +461,7 @@ def convert_regions_dataset_to_rdd(sc, numpartitions, hole_splitspots, holenumbe
     scparas.append(((moviename, (holenumbers[hole_splitspots[-1][0]],
                                  holenumbers[hole_splitspots[-1][1] - 1])),
                     ((datasetname, dtype), regiondata[locs_start:, :])))
-    return sc.parallelize(scparas, numpartitions)
+    return scparas
 
 
 def get_basecall_range_of_each_holesblock(hole_splitspots, holenumbers, holerange):
@@ -521,7 +518,6 @@ def basemods_pipeline_baxh5_operations(keyval):
     baxh5file = name_prefix + ".bax.h5"
     reference_path = SparkFiles.get(REF_FILENAME)
     referencesa_path = SparkFiles.get(REF_SA_FILENAME)
-    # metadataxml_path = SparkFiles.get(metadataxml_name)
     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
 
     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
@@ -531,14 +527,6 @@ def basemods_pipeline_baxh5_operations(keyval):
     else:
         os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
 
-    # # copy metadata.xml from spark tmp dir to TEMP_OUTPUT_FOLDER
-    # os.chmod(metadataxml_path, 0o777)
-    # shutil.copy2(metadataxml_path, TEMP_OUTPUT_FOLDER + "/" + metadataxml_name)
-
-    # write baxh5obj to file
-    # baxh5_dir = TEMP_OUTPUT_FOLDER + '/baxh5'
-    # if not os.path.isdir(baxh5_dir):
-    #     os.mkdir(baxh5_dir)
     baxh5_dir = TEMP_OUTPUT_FOLDER
     baxh5path = baxh5_dir + '/' + baxh5file
     writebaxh5(filecontent, baxh5path)
@@ -550,6 +538,49 @@ def basemods_pipeline_baxh5_operations(keyval):
                seymour_home=SMRT_ANALYSIS_HOME,
                temp_output_folder=TEMP_OUTPUT_FOLDER,
                baxh5_filepath=baxh5path,
+               reference_filepath=reference_path,
+               referencesa_filepath=referencesa_path,
+               cmph5_filename=cmph5file,
+               core_num=CORE_NUM)
+    baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
+    baxh5_out, baxh5_error = baxh5_process.communicate()
+
+    if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
+        raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+                         format(baxh5_out, baxh5_error))
+
+    if baxh5_process.returncode != 0:
+        raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
+                         " stderr: {}".format(baxh5_out, baxh5_error))
+    else:
+        print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
+        cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
+        return split_reads_in_cmph5(cmph5_filepath)
+
+
+def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
+
+    baxh5_filename = os.path.basename(baxh5_filepath)
+    name_prefix = baxh5_filename.split('.bax.h5')[0]
+
+    reference_path = SparkFiles.get(REF_FILENAME)
+    referencesa_path = SparkFiles.get(REF_SA_FILENAME)
+    baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
+
+    cmph5file = name_prefix + ".aligned_reads.cmp.h5"
+
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+    else:
+        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+
+    # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
+    baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
+                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {core_num}". \
+        format(baxh5_operations_sh=baxh5_shell_file_path,
+               seymour_home=SMRT_ANALYSIS_HOME,
+               temp_output_folder=TEMP_OUTPUT_FOLDER,
+               baxh5_filepath=baxh5_filepath,
                reference_filepath=reference_path,
                referencesa_filepath=referencesa_path,
                cmph5_filename=cmph5file,
@@ -1138,21 +1169,18 @@ def basemods_pipe():
         for filename in fnmatch.filter(filenames, '*.metadata.xml'):
             metaxml_filenames.append(os.path.join(root, filename))
 
-    # FIXME: will this (append, union) work when the file is large/the memory is not enough?
-    # baxh5 file operations
     baxh5_folds = BAXH5_FOLDS
-    baxh5_numpartitions = BAXH5_FOLDS
-    baxh5rdds = []
-    for filename in baxh5_filenames:
-        baxh5rdds.append(baxh5toRDD(sc, filename, baxh5_folds, baxh5_numpartitions))
-    all_baxh5rdds = sc.union(baxh5rdds)
-
-    # cmph5 file operations
-    # FIXME: 1. for the rdd contains every reads in cmph5, which is better: sort first and then group, or
-    # FIXME:    group first and then sort?
-    aligned_reads_rdd = all_baxh5rdds.\
-        flatMap(basemods_pipeline_baxh5_operations).\
-        persist(StorageLevel.MEMORY_AND_DISK_SER)
+    baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))
+    if baxh5_folds == 1:
+        aligned_reads_rdd = baxh5nameRDD\
+            .flatMap(basemods_pipeline_baxh5_filepath_operations)\
+            .persist(StorageLevel.MEMORY_AND_DISK_SER)
+    else:
+        aligned_reads_rdd = baxh5nameRDD.\
+            flatMap(lambda x: split_baxh5(x, baxh5_folds)).\
+            partitionBy(len(baxh5_filenames) * baxh5_folds).\
+            flatMap(basemods_pipeline_baxh5_operations).\
+            persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
@@ -1186,13 +1214,13 @@ def basemods_pipe():
     # FIXME: it was calculated in the "loadPulses (blasr/utils)" step, but the source code
     # FIXME: can't be found, so the FrameRate info can only be carried with every read
     # todo: cal FrameRate
-    modification_rdd = cmph5rdd\
+    modification_rdd = cmph5rdd \
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))\
         .partitionBy(len(ref_indentifiers_count))
 
-    motif_rdd = modification_rdd.groupByKey()\
+    motif_rdd = modification_rdd.groupByKey() \
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
