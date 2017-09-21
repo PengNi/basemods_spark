@@ -33,6 +33,8 @@ refMaxLength = 3e12
 COLUMNS = 60
 PAD = 15
 
+max_numpartitions = 10000
+
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -1160,7 +1162,7 @@ def basemods_pipe():
 
     baxh5_folds = BAXH5_FOLDS
     # FIXME: how to do it smarter?---------------
-    shuffle_factor, max_numpartitions = 1000, 10000
+    shuffle_factor = 1000
     numpartitions = len(baxh5_filenames) * shuffle_factor
     re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
     baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
@@ -1172,9 +1174,14 @@ def basemods_pipe():
             .flatMap(basemods_pipeline_baxh5_filepath_operations)\
             .persist(StorageLevel.MEMORY_AND_DISK_SER)
     else:
+        partition_basenum = len(baxh5_filenames) * baxh5_folds
+        shuffle_fold = 5
+        numpartitions = partition_basenum * shuffle_fold
+        re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
         aligned_reads_rdd = baxh5nameRDD.\
             flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
-            repartition(len(baxh5_filenames) * baxh5_folds).\
+            partitionBy(re_numpartitions).\
+            coalesce(partition_basenum).\
             flatMap(basemods_pipeline_baxh5_operations).\
             persist(StorageLevel.MEMORY_AND_DISK_SER)
 
