@@ -1170,7 +1170,14 @@ def basemods_pipe():
             metaxml_filenames.append(os.path.join(root, filename))
 
     baxh5_folds = BAXH5_FOLDS
-    baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))
+    # FIXME: how to do it smarter?---------------
+    shuffle_factor, max_numpartitions = 1000, 10000
+    numpartitions = len(baxh5_filenames) * shuffle_factor
+    re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
+    baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
+        .repartition(re_numpartitions)\
+        .coalesce(len(baxh5_filenames))
+    # -------------------------------------------
     if baxh5_folds == 1:
         aligned_reads_rdd = baxh5nameRDD\
             .flatMap(basemods_pipeline_baxh5_filepath_operations)\
