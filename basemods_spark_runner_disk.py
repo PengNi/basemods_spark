@@ -1175,7 +1175,7 @@ def basemods_pipe():
             .persist(StorageLevel.MEMORY_AND_DISK_SER)
     else:
         partition_basenum = len(baxh5_filenames) * baxh5_folds
-        shuffle_fold = 5
+        shuffle_fold = 500 / baxh5_folds
         numpartitions = partition_basenum * shuffle_fold
         re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
         aligned_reads_rdd = baxh5nameRDD.\
