@@ -1157,7 +1157,7 @@ def basemods_pipe():
         persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
-    ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
+    ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
     # reference info to be shared to each node
     refinfos = sc.broadcast(refcontigs)
@@ -1165,8 +1165,8 @@ def basemods_pipe():
 
     # get the ref chunks
     ref_splitting_info = {}
-    for ref_id in ref_indentifiers_count.keys():
-        ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
+    for ref_id in ref_identifiers_count.keys():
+        ref_splitting_info[ref_id] = _queueChunksForReference(ref_identifiers_count[ref_id],
                                                               refinfos.value[ref_id][SEQUENCE_LENGTH])
     # adjust ref_splitting_info
     dfactor = REF_CHUNKS_FACTOR
@@ -1192,7 +1192,7 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))\
-        .partitionBy(len(ref_indentifiers_count))
+        .partitionBy(len(ref_identifiers_count))
 
     motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),

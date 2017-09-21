@@ -340,7 +340,7 @@ def name_reference_contig_file(ref_name, contigname):
 
 # ---------------------------------------------------------------------------------
 # convert baxh5 to list------------------------------------------------
-def split_baxh5(baxh5file, folds=1):
+def get_chunks_of_baxh5file(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
     if folds > len(holenumbers):
@@ -351,44 +351,45 @@ def split_baxh5(baxh5file, folds=1):
                                                                 holenumbers, hole2range)
     moviename = get_movieName(f)
 
-    holerange_data = []
+    chunk_data_info = []
 
     # datasets in PulseData/BaseCalls/ZMW
     # FIXME: use (for key in f['']) or (for key in f[''].keys())?
     for key in f['/PulseData/BaseCalls/ZMW']:
-        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
-                                                             '/PulseData/BaseCalls/ZMW/' + str(key),
-                                                             moviename))
+        chunk_data_info.extend(get_chunks_in_zmw_info(hole_splitspots, holenumbers,
+                                                      '/PulseData/BaseCalls/ZMW/' + str(key),
+                                                      moviename))
 
     # datasets in PulseData/BaseCalls/ZMWMetrics
     for key in f['/PulseData/BaseCalls/ZMWMetrics']:
-        holerange_data.extend(convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers, f,
-                                                             '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
-                                                             moviename))
+        chunk_data_info.extend(get_chunks_in_zmw_info(hole_splitspots, holenumbers,
+                                                      '/PulseData/BaseCalls/ZMWMetrics/' + str(key),
+                                                      moviename))
 
     # datasets in PulseData/BaseCalls
     for key in f['/PulseData/BaseCalls']:
         if not (str(key) == 'ZMWMetrics' or str(key) == 'ZMW'):
-            holerange_data.extend(convert_dataset_in_basecalls_to_list(hole_splitspots,
-                                                                       holenumbers, basecall_splitspots, f,
-                                                                       '/PulseData/BaseCalls/' + str(key),
-                                                                       moviename))
+            chunk_data_info.extend(get_chunks_in_basecalls_info(hole_splitspots, holenumbers,
+                                                                basecall_splitspots,
+                                                                '/PulseData/BaseCalls/' + str(key),
+                                                                moviename))
 
     # PulseData/Regions
-    holerange_data.extend(convert_regions_dataset_to_list(hole_splitspots, holenumbers, f,
-                                                          '/PulseData/Regions', moviename))
-    baxh5attrs = get_baxh5_attrs(f)
+    chunk_data_info.extend(get_chunks_in_region_info(hole_splitspots, holenumbers, f,
+                                                     '/PulseData/Regions', moviename))
+    # baxh5attrs = get_baxh5_attrs(f)
     f.close()
 
-    holerange_data_group = group_folds_of_one_baxh5file(holerange_data)
-    del holerange_data
+    chunk_data_group = group_folds_of_one_baxh5file(chunk_data_info)
+    del chunk_data_info
 
     print('done converting {} to list'.format(baxh5file))
-    return map(lambda x: add_each_fold_the_attris(x, baxh5attrs), holerange_data_group)
+    return map(lambda x: add_each_fold_the_filepath(x, baxh5file),
+               chunk_data_group)
 
 
-def add_each_fold_the_attris(x, attrs):
-    return x[0], (x[1], attrs)
+def add_each_fold_the_filepath(x, baxh5filepath):
+    return x[0], (baxh5filepath, x[1])
 
 
 def group_folds_of_one_baxh5file(holerange_data):
@@ -401,67 +402,45 @@ def group_folds_of_one_baxh5file(holerange_data):
     return group_holerange_data
 
 
-def convert_dataset_in_zmw_to_list(hole_splitspots, holenumbers,
-                                   f, datasetname, moviename):
-    sdata = f[datasetname].value
-    dtype = sdata.dtype
-    sshape = sdata.shape
-
-    scparas = list()
-    if len(sshape) == 1:
-        for holess in hole_splitspots:
-            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
-                            ((datasetname, dtype), sdata[holess[0]:holess[1]])))
-    else:
-        for holess in hole_splitspots:
-            scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
-                            ((datasetname, dtype), sdata[holess[0]:holess[1], :])))
-
-    return scparas
+def get_chunks_in_zmw_info(hole_splitspots,
+                           holenumbers, datasetname, moviename):
+    chunks_info = []
+    for holess in hole_splitspots:
+        chunks_info.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
+                            (datasetname, (holess[0], holess[1]))))
+    return chunks_info
 
 
-def convert_dataset_in_basecalls_to_list(hole_splitspots, holenumbers,
-                                         basecall_splitspots, f, datasetname, moviename):
-    sdata = f[datasetname].value
-    dtype = sdata.dtype
-    sshape = sdata.shape
-
-    scparas = list()
-    if len(sshape) == 1:
-        for i in range(0, len(hole_splitspots)):
-            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
+def get_chunks_in_basecalls_info(hole_splitspots, holenumbers,
+                                 basecall_splitspots, datasetname, moviename):
+    chunks_info = []
+    for i in range(0, len(hole_splitspots)):
+        chunks_info.append(((moviename, (holenumbers[hole_splitspots[i][0]],
                                          holenumbers[hole_splitspots[i][1] - 1])),
-                            ((datasetname, dtype),
-                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1]])))
-    else:
-        for i in range(0, len(hole_splitspots)):
-            scparas.append(((moviename, (holenumbers[hole_splitspots[i][0]],
-                                         holenumbers[hole_splitspots[i][1] - 1])),
-                            ((datasetname, dtype),
-                             sdata[basecall_splitspots[i][0]:basecall_splitspots[i][1], :])))
-    return scparas
+                            (datasetname, (basecall_splitspots[i][0],
+                                           basecall_splitspots[i][1]))))
+    return chunks_info
 
 
-def convert_regions_dataset_to_list(hole_splitspots, holenumbers,
-                                    f, datasetname, moviename):
-    regiondata = f[datasetname].value
-    dtype = regiondata.dtype
+def get_chunks_in_region_info(hole_splitspots,
+                              holenumbers, f, datasetname, moviename):
+    regiondata = f[datasetname]
     sshape = regiondata.shape
 
-    scparas = list()
+    chunks_info = []
     locs_start = 0
     for holess in hole_splitspots[:-1]:
         holenumbers_tmp = set(holenumbers[holess[0]:holess[1]])
         for i in range(locs_start, sshape[0]):
             if regiondata[i, 0] not in holenumbers_tmp:
-                scparas.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
-                                ((datasetname, dtype), regiondata[locs_start:i, :])))
+                chunks_info.append(((moviename, (holenumbers[holess[0]], holenumbers[holess[1] - 1])),
+                                   (datasetname, (locs_start, i))))
                 locs_start = i
                 break
-    scparas.append(((moviename, (holenumbers[hole_splitspots[-1][0]],
-                                 holenumbers[hole_splitspots[-1][1] - 1])),
-                    ((datasetname, dtype), regiondata[locs_start:, :])))
-    return scparas
+    chunks_info.append(((moviename, (holenumbers[hole_splitspots[-1][0]],
+                                     holenumbers[hole_splitspots[-1][1] - 1])),
+                       (datasetname, (locs_start, sshape[0]))))
+    return chunks_info
 
 
 def get_basecall_range_of_each_holesblock(hole_splitspots, holenumbers, holerange):
@@ -507,8 +486,8 @@ def get_h5item_attrs(h5obj, itempath):
 def basemods_pipeline_baxh5_operations(keyval):
     """
     keyval: an element of baxh5RDD
-    ((moviename, holerange), ([((datasetname, dtype), dataset_value),...],
-    [((name, type(group or dataset)), [(attriname, attrival), ]),...]))
+    ((moviename, holerange), (filepath,
+    [(datasetname, (dataset_begin_spot, dataset_end_spot)),...]))
     :param keyval:
     :return: aligned reads
     """
@@ -603,35 +582,43 @@ def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
 
 def writebaxh5(filecontent, filepath):
     """
-
+    a lighter way
     :param filecontent:
     :param filepath:
     :return:
     """
-    f = h5py.File(filepath, "w")
+    wf = h5py.File(filepath, "w")
     if isinstance(filecontent, tuple):
-        h5data, h5attr = filecontent
+        ori_h5_path, h5data = filecontent
     else:
-        h5data = filecontent
-        h5attr = []
+        raise ValueError("the format of h5file info is wrong!")
+
+    rf = h5py.File(ori_h5_path, "r")
     for datasetinfo in h5data:
-        datasetattr, datasetdata = datasetinfo
-        datasetname = datasetattr[0]
-        f.create_dataset(datasetname, data=datasetdata)
+        datasetname, (lbegin, lend) = datasetinfo
+        sdata = rf[datasetname]
+        sshape = sdata.shape
+        if len(sshape) == 1:
+            wf.create_dataset(datasetname, data=sdata[lbegin:lend])
+        else:
+            wf.create_dataset(datasetname, data=sdata[lbegin:lend, :])
+
+    h5attr = get_baxh5_attrs(rf)
     for itemattrinfo in h5attr:
         item_name_type, itemattrs = itemattrinfo
         if item_name_type[1] == H5GROUP:
-            itemtmp = f.require_group(item_name_type[0])
+            itemtmp = wf.require_group(item_name_type[0])
         else:
-            if item_name_type[0] in f:
-                itemtmp = f[item_name_type[0]]
+            if item_name_type[0] in wf:
+                itemtmp = wf[item_name_type[0]]
             else:
                 # FIXME: this is not recommended, all data of datasets
                 # FIXME: should be written in h5data (the last for loop)
-                itemtmp = f.create_dataset(item_name_type[0], (1,))
+                itemtmp = wf.create_dataset(item_name_type[0], (1,))
         for itemattr_name, itemattr_val in itemattrs:
             itemtmp.attrs[itemattr_name] = itemattr_val
-    f.close()
+    rf.close()
+    wf.close()
 
 
 def split_reads_in_cmph5(cmph5_filepath):
@@ -1186,13 +1173,13 @@ def basemods_pipe():
             .persist(StorageLevel.MEMORY_AND_DISK_SER)
     else:
         aligned_reads_rdd = baxh5nameRDD.\
-            flatMap(lambda x: split_baxh5(x, baxh5_folds)).\
-            partitionBy(len(baxh5_filenames) * baxh5_folds).\
+            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
+            repartition(len(baxh5_filenames) * baxh5_folds).\
             flatMap(basemods_pipeline_baxh5_operations).\
             persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
-    ref_indentifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
+    ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
     # reference info to be shared to each node
     refinfos = sc.broadcast(refcontigs)
@@ -1200,8 +1187,8 @@ def basemods_pipe():
 
     # get the ref chunks
     ref_splitting_info = {}
-    for ref_id in ref_indentifiers_count.keys():
-        ref_splitting_info[ref_id] = _queueChunksForReference(ref_indentifiers_count[ref_id],
+    for ref_id in ref_identifiers_count.keys():
+        ref_splitting_info[ref_id] = _queueChunksForReference(ref_identifiers_count[ref_id],
                                                               refinfos.value[ref_id][SEQUENCE_LENGTH])
     # adjust ref_splitting_info
     dfactor = REF_CHUNKS_FACTOR
@@ -1227,7 +1214,7 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))\
-        .partitionBy(len(ref_indentifiers_count))
+        .partitionBy(len(ref_identifiers_count))
 
     motif_rdd = modification_rdd.groupByKey() \
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
