@@ -1001,6 +1001,8 @@ def creat_redundant_reads(read_keyval, ref_splitting_info):
 
 
 def adjust_ref_splitting_info(ref_splitting_info, factor=2):
+    if factor == 0:
+        factor = 1
     for refid in ref_splitting_info.keys():
         ref_splitting_range = ref_splitting_info[refid]
 
