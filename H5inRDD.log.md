@@ -43,8 +43,9 @@
 > Transform H5 file to a hadoop-friendly file format (TextFile, SquenceFile, HadoopInputFileFormat) first, then save the transformed files to HDFS/AWS3 etc. The transformation __can/need__ be done in a single machine or a spark cluster. 
 
 #### limitations
-> The transformation may cost a lot of time. Need to find an efficient way.
-
+> 1. The transformation may cost a lot of time. Need to find an efficient way.
+> 2. Hadoop/Spark has no interface to read data from a file(SequenceFile or HadoopInputFormat) when the data structure of the file is composite type not simple tpye(such as String,Int,Double etc). 
 #### tests
-> Hint: if you do some tests, please log the time, the result of your tests and how you did it.
+> It's feasible to use python interface to transform the simple pairdata(such as ) to Sequencefile or other HadoopInputFormat,and reread data from the file.
+> But we haven't find a way to transform h5file to hadoop-file format and then reread it from local file-system or HDFS because the Writable interface can not transform Tuple type.
 
