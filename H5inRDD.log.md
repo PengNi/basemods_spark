@@ -46,6 +46,6 @@
 > 1. The transformation may cost a lot of time. Need to find an efficient way.
 > 2. Hadoop/Spark has no interface to read data from a file(SequenceFile or HadoopInputFormat) when the data structure of the file is composite type not simple tpye(such as String,Int,Double etc). 
 #### tests
-> It's feasible to use python interface to transform the simple pairdata(such as ) to Sequencefile or other HadoopInputFormat,and reread data from the file.
-> But we haven't find a way to transform h5file to hadoop-file format and then reread it from local file-system or HDFS because the Writable interface can not transform Tuple type.
+> 1. It's feasible to use python interface to transform the simple pairdata(such as RDD(String,Int)) to Sequencefile or other HadoopInputFormat,and reread data from the file.
+> 2. But we haven't find a way to transform h5file to hadoop-file format and then reread it from local file-system or HDFS because the Writable interface can not transform Tuple type.
 
