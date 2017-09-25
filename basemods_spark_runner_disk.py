@@ -49,13 +49,15 @@ def getParametersFromFile(config_file):
     global REFERENCE_DIR
     global REF_FILENAME
     global REF_SA_FILENAME
-
     global CELL_DATA_DIR
 
     global CORE_NUM
     global BAXH5_FOLDS
     global REF_CHUNKS_FACTOR
     global METHYLATION_TYPES
+
+    global SPARK_EXECUTOR_MEMORY
+    global SPARK_TASK_CPUS
 
     TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
     SMRT_ANALYSIS_HOME = conf.get("filepath", "SMRT_ANALYSIS_HOME")
@@ -70,6 +72,9 @@ def getParametersFromFile(config_file):
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
     REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
     METHYLATION_TYPES = conf.get("parameter", "METHYLATION_TYPES")
+
+    SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
+    SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
     return
 
 
@@ -347,6 +352,8 @@ def get_chunks_of_baxh5file(baxh5file, folds=1):
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
     if folds > len(holenumbers):
         folds = len(holenumbers)
+    elif folds < 1:
+        folds = 1
     hole_splitspots = split_holenumbers(holenumbers, folds)
     hole2range = makeOffsetsDataStructure(f)  # todo: how to make it faster
     basecall_splitspots = get_basecall_range_of_each_holesblock(hole_splitspots,
@@ -539,47 +546,47 @@ def basemods_pipeline_baxh5_operations(keyval):
         return split_reads_in_cmph5(cmph5_filepath)
 
 
-def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
-
-    baxh5_filename = os.path.basename(baxh5_filepath)
-    name_prefix = baxh5_filename.split('.bax.h5')[0]
-
-    reference_path = SparkFiles.get(REF_FILENAME)
-    referencesa_path = SparkFiles.get(REF_SA_FILENAME)
-    baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
-
-    cmph5file = name_prefix + ".aligned_reads.cmp.h5"
-
-    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
-        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-    else:
-        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
-
-    # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
-    baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
-                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {core_num}". \
-        format(baxh5_operations_sh=baxh5_shell_file_path,
-               seymour_home=SMRT_ANALYSIS_HOME,
-               temp_output_folder=TEMP_OUTPUT_FOLDER,
-               baxh5_filepath=baxh5_filepath,
-               reference_filepath=reference_path,
-               referencesa_filepath=referencesa_path,
-               cmph5_filename=cmph5file,
-               core_num=CORE_NUM)
-    baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
-    baxh5_out, baxh5_error = baxh5_process.communicate()
-
-    if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
-        raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
-                         format(baxh5_out, baxh5_error))
-
-    if baxh5_process.returncode != 0:
-        raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
-                         " stderr: {}".format(baxh5_out, baxh5_error))
-    else:
-        print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
-        cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
-        return split_reads_in_cmph5(cmph5_filepath)
+# def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
+#
+#     baxh5_filename = os.path.basename(baxh5_filepath)
+#     name_prefix = baxh5_filename.split('.bax.h5')[0]
+#
+#     reference_path = SparkFiles.get(REF_FILENAME)
+#     referencesa_path = SparkFiles.get(REF_SA_FILENAME)
+#     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
+#
+#     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
+#
+#     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+#         os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+#     else:
+#         os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+#
+#     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
+#     baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
+#                        " {reference_filepath} {referencesa_filepath} {cmph5_filename} {core_num}". \
+#         format(baxh5_operations_sh=baxh5_shell_file_path,
+#                seymour_home=SMRT_ANALYSIS_HOME,
+#                temp_output_folder=TEMP_OUTPUT_FOLDER,
+#                baxh5_filepath=baxh5_filepath,
+#                reference_filepath=reference_path,
+#                referencesa_filepath=referencesa_path,
+#                cmph5_filename=cmph5file,
+#                core_num=CORE_NUM)
+#     baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
+#     baxh5_out, baxh5_error = baxh5_process.communicate()
+#
+#     if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
+#         raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+#                          format(baxh5_out, baxh5_error))
+#
+#     if baxh5_process.returncode != 0:
+#         raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
+#                          " stderr: {}".format(baxh5_out, baxh5_error))
+#     else:
+#         print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
+#         cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
+#         return split_reads_in_cmph5(cmph5_filepath)
 
 
 def writebaxh5(filecontent, filepath):
@@ -766,6 +773,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     """
     (reffullname, (ref_start, ref_end, ref_folds)) = keyval[0]
     reads_info = list(keyval[1])
+    name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
 
     if len(reads_info) > 0:
         if not os.path.isdir(TEMP_OUTPUT_FOLDER):
@@ -776,8 +784,17 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         # setting paths and variables
         contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
         reference_path = SparkFiles.get(contig_filename)
+
+        # -------------------------------------------------------------------
+        # filteredSeq, (ref_start0, ref_end0) = get_refChunk(reference_path,
+        #                                                    ref_start, ref_end, PAD)
+        # ref_chunk_name = name_prefix + ".fasta"
+        # ref_chunk_filepath = '/'.join([TEMP_OUTPUT_FOLDER, ref_chunk_name])
+        # _write_refseq_to_file(filteredSeq, reffullname, ref_chunk_filepath)
+        # del filteredSeq
+        # -------------------------------------------------------------------
+
         cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
-        name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
         cmph5_filename = name_prefix + ".cmp.h5"
         cmph5path = '/'.join([TEMP_OUTPUT_FOLDER, cmph5_filename])
 
@@ -801,7 +818,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                     reference_filepath=reference_path,
                     gff_filename=modification_gff,
                     csv_filename=modification_csv,
-                    core_num=CORE_NUM,
+                    core_num=SPARK_TASK_CPUS,
                     methylation_type=METHYLATION_TYPES)
 
         cmph5_process = Popen(shlex.split(cmph5_operations), stdout=PIPE, stderr=PIPE)
@@ -823,15 +840,25 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
             with open(gff_filepath) as rf:
                 for line in rf:
                     if not line.startswith("##"):
-                        gffContent += line.strip() + "\n"
+                        gffContent += line.strip() + '\n'
+                        break
+                gffContent += "\n".join(line.strip() for line in rf) + '\n'
             with open(csv_filepath) as rf:
                 next(rf)
-                for line in rf:
-                    csvContent += line.strip() + "\n"
+                csvContent += "\n".join(line.strip() for line in rf) + '\n'
 
-            return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent,})
+            return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, })
     else:
         raise ValueError("no reads to form a cmph5 file")
+
+
+def get_refChunk(reference_path, ref_start, ref_end, pad=15):
+    refinfo = _getRefInfoFromFastaFile(reference_path)
+    refinfo = refinfo[list(refinfo.keys())[0]]
+    ref_start0, ref_end0 = max(0, ref_start-pad), min(refinfo[SEQUENCE_LENGTH], ref_end+pad)
+    sequence = refinfo[SEQUENCE][ref_start0:ref_end0]
+    del refinfo
+    return sequence, (ref_start-ref_start0, ref_end-ref_start0)
 
 
 def writecmph5(filepath, reads_info, reffullname, refinfo, moviechemistry):
@@ -1121,6 +1148,22 @@ def write_ref_contigs(ref_dir, ref_name, ref_contigs):
             del sequence
         contig_filepaths.append(contigpath)
     return contig_filepaths
+
+
+def _write_refseq_to_file(sequence, contigname, filepath):
+    try:
+        wf = open(filepath, 'w')
+        wf.write('>' + contigname + '\n')
+        seqLength = len(sequence)
+        xsteps = [s for s in range(0, seqLength, COLUMNS)]
+        for i in range(0, len(xsteps) - 1):
+            wf.write(sequence[xsteps[i]:xsteps[i + 1]] + '\n')
+        wf.write(sequence[xsteps[-1]:seqLength] + '\n')
+    except IOError:
+        print("File reading wrong")
+    finally:
+        wf.flush()
+        wf.close()
 # -----------------------------------------------------------------------------------------
 
 
@@ -1128,7 +1171,8 @@ def basemods_pipe():
     abs_dir = os.path.dirname(os.path.realpath(__file__))
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
-    SparkContext.setSystemProperty('spark.executor.memory', '4g')
+    SparkContext.setSystemProperty('spark.executor.memory', SPARK_EXECUTOR_MEMORY)
+    SparkContext.setSystemProperty('spark.task.cpus', SPARK_TASK_CPUS)
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
@@ -1169,21 +1213,17 @@ def basemods_pipe():
         .repartition(re_numpartitions)\
         .coalesce(len(baxh5_filenames))
     # -------------------------------------------
-    if baxh5_folds == 1:
-        aligned_reads_rdd = baxh5nameRDD\
-            .flatMap(basemods_pipeline_baxh5_filepath_operations)\
-            .persist(StorageLevel.MEMORY_AND_DISK_SER)
-    else:
-        partition_basenum = len(baxh5_filenames) * baxh5_folds
-        shuffle_fold = 500 / baxh5_folds
-        numpartitions = partition_basenum * shuffle_fold
-        re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
-        aligned_reads_rdd = baxh5nameRDD.\
-            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
-            partitionBy(re_numpartitions).\
-            coalesce(partition_basenum).\
-            flatMap(basemods_pipeline_baxh5_operations).\
-            persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+    partition_basenum = len(baxh5_filenames) * baxh5_folds
+    shuffle_fold = 500 / baxh5_folds
+    numpartitions = partition_basenum * shuffle_fold
+    re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
+    aligned_reads_rdd = baxh5nameRDD.\
+        flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
+        partitionBy(re_numpartitions).\
+        coalesce(partition_basenum).\
+        flatMap(basemods_pipeline_baxh5_operations).\
+        persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
@@ -1217,13 +1257,13 @@ def basemods_pipe():
     # FIXME: it was calculated in the "loadPulses (blasr/utils)" step, but the source code
     # FIXME: can't be found, so the FrameRate info can only be carried with every read
     # todo: cal FrameRate
-    modification_rdd = cmph5rdd \
+    modification_rdd = cmph5rdd\
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))\
         .partitionBy(len(ref_identifiers_count))
 
-    motif_rdd = modification_rdd.groupByKey() \
+    motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
