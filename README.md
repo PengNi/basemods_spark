@@ -38,7 +38,11 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 ### How to use basemods_spark
 
-1. #### make scripts in our code executable
+1. #### copy your data
+copy your data to the Network File System of your *Hadoop/Spark* cluster.
+If you don't have one, save __a full copy of your data in the same directory__ of the master node and all worker nodes.
+
+1. #### make the scripts executable
 
 If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
     
@@ -50,7 +54,7 @@ chmod +x basemods_spark/scripts/cmph5_operations.sh
 chmod +x basemods_spark/scripts/mods_operations.sh
 ```
 
-2. #### start HDFS is you need to
+2. #### start HDFS if you need to
 
 ```sh
 $HADOOP_HOME/sbin/start-dfs.sh
@@ -68,12 +72,7 @@ Set the parameters in configure file 'parameters.conf'.
     $SPARK_HOME/sbin/start-all.sh
     ```
 
-    (2) memory mode
+    (2) submit your job
     ```sh
     $SPARK_HOME/bin/spark-submit basemods_spark_runner.py
-    ```
-    
-    (3) disk mode
-    ```sh
-    $SPARK_HOME/bin/spark-submit basemods_spark_runner_disk.py
     ```
