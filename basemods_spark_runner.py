@@ -58,7 +58,8 @@ def getParametersFromFile(config_file):
 
     global SPARK_EXECUTOR_MEMORY
     global SPARK_TASK_CPUS
-    global SPARK_STORAGE_MEMORYFRACTION
+    global SPARK_MEMORY_FRACTION
+    global SPARK_MEMORY_STORAGEFRACTION
 
     TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
     SMRT_ANALYSIS_HOME = conf.get("filepath", "SMRT_ANALYSIS_HOME")
@@ -76,7 +77,8 @@ def getParametersFromFile(config_file):
 
     SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
     SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
-    SPARK_STORAGE_MEMORYFRACTION = conf.get('SparkConfiguration', 'spark_storage_memoryFraction')
+    SPARK_MEMORY_FRACTION = conf.get('SparkConfiguration', 'spark_memory_fraction')
+    SPARK_MEMORY_STORAGEFRACTION = conf.get('SparkConfiguration', 'spark_memory_storageFraction')
     return
 
 
@@ -1098,7 +1100,8 @@ def basemods_pipe():
 
     SparkContext.setSystemProperty('spark.executor.memory', SPARK_EXECUTOR_MEMORY)
     SparkContext.setSystemProperty('spark.task.cpus', SPARK_TASK_CPUS)
-    SparkContext.setSystemProperty('spark.storage.memoryFraction', SPARK_STORAGE_MEMORYFRACTION)
+    SparkContext.setSystemProperty('spark.memory.fraction', SPARK_MEMORY_FRACTION)
+    SparkContext.setSystemProperty('spark.memory.storageFraction', SPARK_MEMORY_STORAGEFRACTION)
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
