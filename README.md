@@ -33,39 +33,39 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 3. #### Python 2.x and required Python libraries
 
-    If the OS of the nodes (both master and workers) in your cluster doesn't have python 2.x installed, you should install it. Install *h5py*, *numpy* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
+    If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install *h5py*, *numpy* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
 
 
 ### How to use basemods_spark
 
 1. #### copy your data
-copy your data to the Network File System of your *Hadoop/Spark* cluster.
-If you don't have one, save **a full copy of your data in the same directory** of the master node and all worker nodes.
+    Copy your data to the Network File System of your *Hadoop/Spark* cluster.
+    If you don't have one, save **a full copy of your data in the same directory** of the master node and all worker nodes.
 
-1. #### make the scripts executable
+2. #### make the scripts executable
 
-If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
+    If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
     
-```sh
-chmod +x basemods_spark/scripts/baxh5_operations.sh
+    ```sh
+    chmod +x basemods_spark/scripts/baxh5_operations.sh
     
-chmod +x basemods_spark/scripts/cmph5_operations.sh
+    chmod +x basemods_spark/scripts/cmph5_operations.sh
     
-chmod +x basemods_spark/scripts/mods_operations.sh
-```
+    chmod +x basemods_spark/scripts/mods_operations.sh
+    ```
 
-2. #### start HDFS if you need to
+3. #### start HDFS if you need to
 
-```sh
-$HADOOP_HOME/sbin/start-dfs.sh
-```
+    ```sh
+    $HADOOP_HOME/sbin/start-dfs.sh
+    ```
 
-3. #### parameters in configure file
+4. #### parameters in configure file
 
-Set the parameters in configure file 'parameters.conf'.
+    Set the parameters in configure file 'parameters.conf'.
 
 
-4. #### start Spark and use spark-submit to run the pipeline
+5. #### start Spark and use spark-submit to run the pipeline
 
     (1) start Spark
     ```sh

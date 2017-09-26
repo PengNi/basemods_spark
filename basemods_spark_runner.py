@@ -53,7 +53,7 @@ def getParametersFromFile(config_file):
 
     global CORE_NUM
     global BAXH5_FOLDS
-    global REF_CHUNKS_FACTOR
+    # global REF_CHUNKS_FACTOR
     global METHYLATION_TYPES
 
     global SPARK_EXECUTOR_MEMORY
@@ -71,7 +71,7 @@ def getParametersFromFile(config_file):
 
     CORE_NUM = conf.getint("parameter", "CORE_NUM")
     BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
-    REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
+    # REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
     METHYLATION_TYPES = conf.get("parameter", "METHYLATION_TYPES")
 
     SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
@@ -1164,7 +1164,8 @@ def basemods_pipe():
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_identifiers_count[ref_id],
                                                               refinfos.value[ref_id][SEQUENCE_LENGTH])
     # adjust ref_splitting_info
-    dfactor = REF_CHUNKS_FACTOR
+    # dfactor = REF_CHUNKS_FACTOR
+    dfactor = SPARK_TASK_CPUS
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
 
     chunk_sum = 0
