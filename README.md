@@ -10,7 +10,7 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 2. #### SMRT-Analysis
 
-    2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) in **each worker node** of your *Hadoop*/*Spark* cluster.
+    2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) (v2.3.0) in **each worker node** of your *Hadoop/Spark* cluster.
     
     2.2 In **each worker node**, replace *ipdsummary.py* and *KineticWorker.py* in SMRT-Analysis with the modified scripts in the directory "basemods_spark/scripts".
      + copy *basemods_spark/scripts/ipdSummary.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin*
@@ -33,16 +33,12 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 3. #### Python 2.x and required Python libraries
 
-    If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install *h5py*, *numpy* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
+    If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install *h5py*, *numpy* *paramiko* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
 
 
 ### How to use basemods_spark
 
-1. #### copy your data
-    Copy your data to the Network File System of your *Hadoop/Spark* cluster.
-    If you don't have one, save **a full copy of your data in the same directory** of the master node and all worker nodes.
-
-2. #### make the scripts executable
+1. #### make the scripts executable
 
     If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
     
@@ -54,25 +50,28 @@ the spark version of basemods pipeline in SMRT-Analysis
     chmod +x basemods_spark/scripts/mods_operations.sh
     ```
 
-3. #### start HDFS if you need to
+2. #### copy your data
+    Copy your data to the master node of your *Hadoop/Spark* cluster.
+
+
+3. #### parameters in configure file
+    Set the parameters in configure file 'parameters.conf'.
+
+
+4. #### start Spark and use spark-submit to run the pipeline
+
+    (1) start HDFS if you need to
 
     ```sh
     $HADOOP_HOME/sbin/start-dfs.sh
     ```
 
-4. #### parameters in configure file
-
-    Set the parameters in configure file 'parameters.conf'.
-
-
-5. #### start Spark and use spark-submit to run the pipeline
-
-    (1) start Spark
+    (2) start Spark
     ```sh
     $SPARK_HOME/sbin/start-all.sh
     ```
 
-    (2) submit your job
+    (3) submit your job
     ```sh
     $SPARK_HOME/bin/spark-submit basemods_spark_runner.py
     ```

@@ -511,16 +511,13 @@ class KineticWorker(object):
         # If the user has specified a maximum coverage level to use, enforce it here -- just take the first n reads
         if self.options.maxCoverage is not None:
             maxCov = self.options.maxCoverage
-            for x in views:
-                d = x['data']
 
-                # np modified
-                # d = d[0:maxCov]
-                if maxCov != -1:
+            # np modified----
+            if maxCov != -1:
+                for x in views:
+                    d = x['data']
                     d = d[0:maxCov]
-
-                x['data'] = d
-
+                    x['data'] = d
         return views
 
     def _subreadNormalizationFactor(self, rawIpds):

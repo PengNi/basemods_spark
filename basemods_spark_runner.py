@@ -11,6 +11,7 @@ import fnmatch
 import numpy
 import hashlib
 import ConfigParser
+import paramiko
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -45,7 +46,6 @@ def getParametersFromFile(config_file):
 
     global TEMP_OUTPUT_FOLDER
     global SMRT_ANALYSIS_HOME
-
     global REFERENCE_DIR
     global REF_FILENAME
     global REF_SA_FILENAME
@@ -54,26 +54,36 @@ def getParametersFromFile(config_file):
     global CORE_NUM
     global BAXH5_FOLDS
     # global REF_CHUNKS_FACTOR
+    global IPDMAXCOVERAGE
     global METHYLATION_TYPES
+
+    global MASTERNODE_IP
+    global MASTERNODE_PORT
+    global MASTERNODE_USERNAME
+    global MASTERNODE_USERPASSWD
 
     global SPARK_EXECUTOR_MEMORY
     global SPARK_TASK_CPUS
     global SPARK_MEMORY_FRACTION
     global SPARK_MEMORY_STORAGEFRACTION
 
-    TEMP_OUTPUT_FOLDER = conf.get("filepath", "TEMP_OUTPUT_FOLDER")
-    SMRT_ANALYSIS_HOME = conf.get("filepath", "SMRT_ANALYSIS_HOME")
+    TEMP_OUTPUT_FOLDER = conf.get("FilePath", "TEMP_OUTPUT_FOLDER")
+    SMRT_ANALYSIS_HOME = conf.get("FilePath", "SMRT_ANALYSIS_HOME")
+    REFERENCE_DIR = conf.get("FilePath", "REFERENCE_DIR")
+    REF_FILENAME = conf.get("FilePath", "REF_FILENAME")
+    REF_SA_FILENAME = conf.get("FilePath", "REF_SA_FILENAME")
+    CELL_DATA_DIR = conf.get("FilePath", "CELL_DATA_DIR")
 
-    REFERENCE_DIR = conf.get("filepath", "REFERENCE_DIR")
-    REF_FILENAME = conf.get("filepath", "REF_FILENAME")
-    REF_SA_FILENAME = conf.get("filepath", "REF_SA_FILENAME")
+    CORE_NUM = conf.getint("PipelineArgs", "CORE_NUM")
+    BAXH5_FOLDS = conf.getint("PipelineArgs", "BAXH5_FOLDS")
+    # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
+    IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
+    METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
 
-    CELL_DATA_DIR = conf.get("filepath", "CELL_DATA_DIR")
-
-    CORE_NUM = conf.getint("parameter", "CORE_NUM")
-    BAXH5_FOLDS = conf.getint("parameter", "BAXH5_FOLDS")
-    # REF_CHUNKS_FACTOR = conf.getint("parameter", "REF_CHUNKS_FACTOR")
-    METHYLATION_TYPES = conf.get("parameter", "METHYLATION_TYPES")
+    MASTERNODE_IP = conf.get("MasterNodeInfo", "HOST")
+    MASTERNODE_PORT = conf.getint("MasterNodeInfo", "HOSTPORT")
+    MASTERNODE_USERNAME = conf.get("MasterNodeInfo", "USERNAME")
+    MASTERNODE_USERPASSWD = conf.get("MasterNodeInfo", "USERPASSWD")
 
     SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
     SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
@@ -345,11 +355,86 @@ def name_reference_contig_file(ref_name, contigname):
     ref_prefix, ref_ext = os.path.splitext(ref_name)
     contigname = contigname.replace(' ', SPACE_ALTER)
     return ref_prefix + '.' + contigname + ref_ext
+
+
+# scp.py---------------------------------------------------
+def ssh_scp_put(ip, port, user, password, local_file, remote_file):
+    """
+
+    :param ip:
+    :param port: int
+    :param user:
+    :param password:
+    :param local_file:
+    :param remote_file:
+    :return:
+    """
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
+        sftp.put(local_file, remote_file)
+    except Exception:
+        print("wrong connection")
+    finally:
+        sftp.close()
+        ssh.close()
+
+
+def ssh_scp_get(ip, port, user, password, remote_file, local_file):
+    """
+
+    :param ip:
+    :param port: int
+    :param user:
+    :param password:
+    :param remote_file:
+    :param local_file:
+    :return:
+    """
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
+        sftp.get(remote_file, local_file)
+    except Exception:
+        print("wrong connection")
+    finally:
+        sftp.close()
+        ssh.close()
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------------
+# get baxh5file from master node---------------------------------------
+def get_baxh5file_from_masternode(remote_filepath):
+    master_ip = MASTERNODE_IP
+    master_port = MASTERNODE_PORT
+    master_user = MASTERNODE_USERNAME
+    master_passwd = MASTERNODE_USERPASSWD
+    try:
+        local_temp_dir = TEMP_OUTPUT_FOLDER
+        if not os.path.isdir(local_temp_dir):
+            os.mkdir(local_temp_dir, 0777)
+        else:
+            os.chmod(local_temp_dir, 0o777)
+        filename = os.path.basename(remote_filepath)
+        local_filepath = '/'.join([local_temp_dir, filename])
+
+        ssh_scp_get(master_ip, master_port, master_user, master_passwd,
+                    remote_filepath, local_filepath)
+        return local_filepath
+    except Exception:
+        print('wrong connection')
+    finally:
+        print('done transforming data from master node')
+
+
 # convert baxh5 to list------------------------------------------------
 def get_chunks_of_baxh5file(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
@@ -754,6 +839,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         modification_csv = name_prefix + ".modifications.csv"
 
         refchunkinfo = ','.join(["1", str(ref_start), str(ref_end), str(ref_folds)])
+        ipdMaxCoverage = IPDMAXCOVERAGE
 
         # writing cmph5 file
         writecmph5(cmph5path, reads_info, reffullname, refinfo, moviechemistry)
@@ -761,7 +847,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         # cmph5 operations (sort, repack, computeModifications)
         cmph5_operations = "{cmph5_operations_sh} {seymour_home} {temp_output_folder} {cmph5_filepath}" \
                            " {ref_chunk_info} {reference_filepath} {gff_filename} {csv_filename}" \
-                           " {core_num} {methylation_type}" \
+                           " {max_coverage} {core_num} {methylation_type}" \
             .format(cmph5_operations_sh=cmph5_shell_file_path,
                     seymour_home=SMRT_ANALYSIS_HOME,
                     temp_output_folder=TEMP_OUTPUT_FOLDER,
@@ -770,6 +856,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
                     reference_filepath=reference_path,
                     gff_filename=modification_gff,
                     csv_filename=modification_csv,
+                    max_coverage=ipdMaxCoverage,
                     core_num=SPARK_TASK_CPUS,
                     methylation_type=METHYLATION_TYPES)
 
@@ -1143,14 +1230,10 @@ def basemods_pipe():
         .coalesce(len(baxh5_filenames))
     # -------------------------------------------
 
-    partition_basenum = len(baxh5_filenames) * baxh5_folds
-    shuffle_fold = 500 / baxh5_folds
-    numpartitions = partition_basenum * shuffle_fold
-    re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
+    # partition_basenum = len(baxh5_filenames) * baxh5_folds
     aligned_reads_rdd = baxh5nameRDD.\
+        map(get_baxh5file_from_masternode).\
         flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
-        partitionBy(re_numpartitions).\
-        coalesce(partition_basenum).\
         flatMap(basemods_pipeline_baxh5_operations).\
         persist(StorageLevel.MEMORY_AND_DISK_SER)
 
