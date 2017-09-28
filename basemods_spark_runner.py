@@ -1230,6 +1230,8 @@ def basemods_pipe():
         .coalesce(len(baxh5_filenames))
     # -------------------------------------------
 
+    # FIXME: how to repartition without shuffle
+    # FIXME: maybe should try get baxh5file from master node after splitting chunks
     # partition_basenum = len(baxh5_filenames) * baxh5_folds
     aligned_reads_rdd = baxh5nameRDD.\
         map(get_baxh5file_from_masternode).\
