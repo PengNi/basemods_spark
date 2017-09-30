@@ -369,6 +369,7 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     :param remote_file:
     :return:
     """
+    flag = 0
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(ip, port, user, password)
@@ -376,11 +377,13 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     sftp = ssh.open_sftp()
     try:
         sftp.put(local_file, remote_file)
+        flag = 1
     except Exception:
         print("wrong connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
     finally:
         sftp.close()
         ssh.close()
+        return flag
 
 
 def ssh_scp_get(ip, port, user, password, remote_file, local_file):
@@ -394,6 +397,7 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     :param local_file:
     :return:
     """
+    flag = 0
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(ip, port, user, password)
@@ -401,11 +405,13 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     sftp = ssh.open_sftp()
     try:
         sftp.get(remote_file, local_file)
+        flag = 1
     except Exception:
         print("wrong connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
     finally:
         sftp.close()
         ssh.close()
+        return flag
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
@@ -434,8 +440,14 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
         filename = os.path.basename(remote_filepath)
         local_filepath = '/'.join([local_temp_dir, filename])
 
-        ssh_scp_get(master_ip, master_port, master_user, master_passwd,
-                    remote_filepath, local_filepath)
+        attemp_times = 2
+        for i in range(0, attemp_times):
+            ifsuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
+                                    remote_filepath, local_filepath)
+            if ifsuccess > 0:
+                print("{} {} success".format(master_ip, remote_filepath))
+                # todo write a success flag file
+                break
         return local_filepath
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))

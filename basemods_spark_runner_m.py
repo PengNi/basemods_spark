@@ -13,6 +13,7 @@ import hashlib
 import ConfigParser
 import paramiko
 import socket
+import time
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -592,11 +593,13 @@ def scp_transmit_data(scpinfos, worker_tmp_folder):
     :param scpinfos: list of tuples: (masternode_filepath, workernode_ip)
     :return:
     """
+    tstart = time.time()
     print('transmit data starting...')
     if not os.path.isdir(worker_tmp_folder):
         os.mkdir(worker_tmp_folder, 0777)
     else:
         os.chmod(worker_tmp_folder, 0o777)
+    count = 1
     for scpinfo in scpinfos:
         mFilepath, wIP = scpinfo
         wFilepath = conv_filepath(mFilepath, worker_tmp_folder)
@@ -605,6 +608,8 @@ def scp_transmit_data(scpinfos, worker_tmp_folder):
         wUser = WORKERNODE_USERNAME
         wPasswd = WORKERNODE_USERPASSWD
 
+        print("{} {} {} transmitting start".format(count, wIP, wFilepath))
+        count += 1
         attemp_times = 2
         for i in range(0, attemp_times):
             ifsuccess = ssh_scp_put(wIP, wPort, wUser, wPasswd, mFilepath, wFilepath)
@@ -612,7 +617,7 @@ def scp_transmit_data(scpinfos, worker_tmp_folder):
                 print("{} {} success".format(wIP, wFilepath))
                 # todo write a success flag file
                 break
-    print('transmit data ending...')
+    print('transmit data ending, spending {} seconds'.format(time.time()-tstart))
     pass
 
 
@@ -623,6 +628,9 @@ def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
     :param baxh5_filepath:
     :return:
     """
+    if not os.path.isfile(baxh5_filepath):
+        print("the file {} does not exist".format(baxh5_filepath))
+        return []
     baxh5_filename = os.path.basename(baxh5_filepath)
     name_prefix = baxh5_filename.split('.bax.h5')[0]
 
@@ -672,6 +680,10 @@ def basemods_pipeline_baxh5_operations(keyval):
     :param keyval:
     :return: aligned reads
     """
+    if not os.path.isfile(keyval[1][0]):
+        print("the file {} does not exist".format(keyval[1][0]))
+        return []
+
     fileinfo, filecontent = keyval
 
     name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', SPACE_ALTER)
