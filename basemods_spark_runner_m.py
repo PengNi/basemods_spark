@@ -12,6 +12,7 @@ import numpy
 import hashlib
 import ConfigParser
 import paramiko
+import socket
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -57,10 +58,9 @@ def getParametersFromFile(config_file):
     global IPDMAXCOVERAGE
     global METHYLATION_TYPES
 
-    global MASTERNODE_IP
-    global MASTERNODE_PORT
-    global MASTERNODE_USERNAME
-    global MASTERNODE_USERPASSWD
+    global WORKERNODE_PORT
+    global WORKERNODE_USERNAME
+    global WORKERNODE_USERPASSWD
 
     global SPARK_EXECUTOR_MEMORY
     global SPARK_TASK_CPUS
@@ -80,10 +80,9 @@ def getParametersFromFile(config_file):
     IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
     METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
 
-    MASTERNODE_IP = conf.get("MasterNodeInfo", "HOST")
-    MASTERNODE_PORT = conf.getint("MasterNodeInfo", "HOSTPORT")
-    MASTERNODE_USERNAME = conf.get("MasterNodeInfo", "USERNAME")
-    MASTERNODE_USERPASSWD = conf.get("MasterNodeInfo", "USERPASSWD")
+    WORKERNODE_PORT = conf.getint("WorkerNodeInfo", "WORKERNODE_PORT")
+    WORKERNODE_USERNAME = conf.get("WorkerNodeInfo", "USERNAME")
+    WORKERNODE_USERPASSWD = conf.get("WorkerNodeInfo", "USERPASSWD")
 
     SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
     SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
@@ -369,6 +368,7 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     :param remote_file:
     :return:
     """
+    flag = 0
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(ip, port, user, password)
@@ -376,11 +376,13 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     sftp = ssh.open_sftp()
     try:
         sftp.put(local_file, remote_file)
+        flag = 1
     except Exception:
-        print("wrong connection")
+        print("wrong connection {} {} {}".format(ip, port, user))
     finally:
         sftp.close()
         ssh.close()
+        return flag
 
 
 def ssh_scp_get(ip, port, user, password, remote_file, local_file):
@@ -411,39 +413,14 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
 
 
 # ---------------------------------------------------------------------------------
-# get baxh5file from master node---------------------------------------
-def mktmpdir(x, local_temp_dir):
-    if not os.path.isdir(local_temp_dir):
-        os.mkdir(local_temp_dir, 0777)
-    else:
-        os.chmod(local_temp_dir, 0o777)
-    return x
-
-
-def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
-    master_ip = MASTERNODE_IP
-    master_port = MASTERNODE_PORT
-    master_user = MASTERNODE_USERNAME
-    master_passwd = MASTERNODE_USERPASSWD
-
-    if not os.path.isdir(local_temp_dir):
-        os.mkdir(local_temp_dir, 0777)
-    else:
-        os.chmod(local_temp_dir, 0o777)
-    try:
-        filename = os.path.basename(remote_filepath)
-        local_filepath = '/'.join([local_temp_dir, filename])
-
-        ssh_scp_get(master_ip, master_port, master_user, master_passwd,
-                    remote_filepath, local_filepath)
-        return local_filepath
-    except Exception:
-        print('wrong connection {}'.format(local_filepath))
-    finally:
-        print('done transforming data from master node to {}'.format(local_filepath))
-
-
 # convert baxh5 to list------------------------------------------------
+def get_chunks_of_baxh5files(baxh5files, folds=1):
+    chunks_info = []
+    for bfile in baxh5files:
+        chunks_info.extend(get_chunks_of_baxh5file(bfile, folds))
+    return bfile
+
+
 def get_chunks_of_baxh5file(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
@@ -588,7 +565,105 @@ def get_h5item_attrs(h5obj, itempath):
     return attrslist
 
 
+# functions about scp files from master to worker----------------------
+def add_ip_to_filepath(filepath):
+    ip = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
+                       if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
+                                                             s.getsockname()[0], s.close())
+                                                            for s in [socket.socket(socket.AF_INET,
+                                                                                    socket.SOCK_DGRAM)]][0][1]])
+          if l][0][0]
+    return filepath, ip
+
+
+def conv_filepath(master_filepath, worker_dir):
+    return '/'.join([worker_dir, os.path.basename(master_filepath)])
+
+
+def conv_filepath_in_chunksinfo(chunkinfo, worker_dir):
+    chunkinfo_key, chunkinfo_val = chunkinfo
+    wfilepath = conv_filepath(chunkinfo_val[0], worker_dir)
+    return chunkinfo_key, (wfilepath, chunkinfo_val[1])
+
+
+def scp_transmit_data(scpinfos, worker_tmp_folder):
+    """
+
+    :param scpinfos: list of tuples: (masternode_filepath, workernode_ip)
+    :return:
+    """
+    print('transmit data starting...')
+    if not os.path.isdir(worker_tmp_folder):
+        os.mkdir(worker_tmp_folder, 0777)
+    else:
+        os.chmod(worker_tmp_folder, 0o777)
+    for scpinfo in scpinfos:
+        mFilepath, wIP = scpinfo
+        wFilepath = conv_filepath(mFilepath, worker_tmp_folder)
+
+        wPort = WORKERNODE_PORT
+        wUser = WORKERNODE_USERNAME
+        wPasswd = WORKERNODE_USERPASSWD
+
+        attemp_times = 2
+        for i in range(0, attemp_times):
+            ifsuccess = ssh_scp_put(wIP, wPort, wUser, wPasswd, mFilepath, wFilepath)
+            if ifsuccess > 0:
+                print("{} {} success".format(wIP, wFilepath))
+                # todo write a success flag file
+                break
+    print('transmit data ending...')
+    pass
+
+
 # operations for each rdd element in baxh5RDD-------------------------
+def basemods_pipeline_baxh5_filepath_operations(baxh5_filepath):
+    """
+
+    :param baxh5_filepath:
+    :return:
+    """
+    baxh5_filename = os.path.basename(baxh5_filepath)
+    name_prefix = baxh5_filename.split('.bax.h5')[0]
+
+    reference_path = SparkFiles.get(REF_FILENAME)
+    referencesa_path = SparkFiles.get(REF_SA_FILENAME)
+    baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
+
+    cmph5file = name_prefix + ".aligned_reads.cmp.h5"
+
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+    else:
+        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+
+    # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
+    baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
+                       " {reference_filepath} {referencesa_filepath} {cmph5_filename} {core_num}". \
+        format(baxh5_operations_sh=baxh5_shell_file_path,
+               seymour_home=SMRT_ANALYSIS_HOME,
+               temp_output_folder=TEMP_OUTPUT_FOLDER,
+               baxh5_filepath=baxh5_filepath,
+               reference_filepath=reference_path,
+               referencesa_filepath=referencesa_path,
+               cmph5_filename=cmph5file,
+               core_num=CORE_NUM)
+    baxh5_process = Popen(shlex.split(baxh5_operations), stdout=PIPE, stderr=PIPE)
+    baxh5_out, baxh5_error = baxh5_process.communicate()
+
+    if "[Errno" in baxh5_error.strip() or "error" in baxh5_error.strip().lower():
+        raise ValueError("baxh5 process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+                         format(baxh5_out, baxh5_error))
+
+    if baxh5_process.returncode != 0:
+        raise ValueError("baxh5 process failed to complete! (Non-zero return code)\n stdout: {} \n"
+                         " stderr: {}".format(baxh5_out, baxh5_error))
+    else:
+        print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
+        cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
+        return split_reads_in_cmph5(cmph5_filepath)
+
+
 def basemods_pipeline_baxh5_operations(keyval):
     """
     keyval: an element of baxh5RDD
@@ -1229,28 +1304,45 @@ def basemods_pipe():
             metaxml_filenames.append(os.path.join(root, filename))
 
     baxh5_folds = BAXH5_FOLDS
-    local_temp_dir = TEMP_OUTPUT_FOLDER
-    # FIXME: how to do it smarter?---------------
-    shuffle_factor = 1000
-    numpartitions = len(baxh5_filenames) * shuffle_factor
-    re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
-    baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
-        .repartition(re_numpartitions)\
-        .coalesce(len(baxh5_filenames))\
-        .map(lambda x: mktmpdir(x, local_temp_dir))
-    # -------------------------------------------
+    worker_tmp_folder = TEMP_OUTPUT_FOLDER
+    if baxh5_folds == 1:
+        # FIXME: how to do it smarter?---------------
+        shuffle_factor = 1000
+        numpartitions = len(baxh5_filenames) * shuffle_factor
+        re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
+        baxh5fileinfo = sc.parallelize(baxh5_filenames, len(baxh5_filenames)) \
+            .repartition(re_numpartitions) \
+            .coalesce(len(baxh5_filenames)).persist()
+        # -------------------------------------------
+        scpinfo = baxh5fileinfo.map(add_ip_to_filepath).collect()
+        print('there are {} file_transmition tasks'.format(len(scpinfo)))
+        scp_transmit_data(scpinfo, worker_tmp_folder)
 
-    # FIXME: how to repartition without shuffle
-    # FIXME: maybe should try get baxh5file from master node after splitting chunks
-    # partition_basenum = len(baxh5_filenames) * baxh5_folds
-    aligned_reads_rdd = baxh5nameRDD.\
-        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir)).\
-        flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
-        flatMap(basemods_pipeline_baxh5_operations).\
-        persist(StorageLevel.MEMORY_AND_DISK_SER)
+        aligned_reads_rdd = baxh5fileinfo\
+            .map(lambda x: conv_filepath(x, worker_tmp_folder))\
+            .flatMap(basemods_pipeline_baxh5_filepath_operations).\
+            persist(StorageLevel.MEMORY_AND_DISK_SER)
+    else:
+        allfiles_chunksinfo = get_chunks_of_baxh5files(baxh5_filenames, baxh5_folds)
+        partition_basenum = len(baxh5_filenames) * baxh5_folds
+        baxh5fileinfo = sc.parallelize(allfiles_chunksinfo).\
+            partitionBy(partition_basenum).\
+            persist()
+
+        scpinfo = baxh5fileinfo.map(lambda (x, y): y[0]).\
+            map(add_ip_to_filepath).collect()
+        scpinfo = list(set(scpinfo))
+        print('there are {} file_transmition tasks'.format(len(scpinfo)))
+        scp_transmit_data(scpinfo, worker_tmp_folder)
+
+        aligned_reads_rdd = baxh5fileinfo.\
+            map(lambda x: conv_filepath_in_chunksinfo(x, worker_tmp_folder)).\
+            flatMap(basemods_pipeline_baxh5_operations).\
+            persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
+    baxh5fileinfo.unpersist()
 
     # reference info to be shared to each node
     refinfos = sc.broadcast(refcontigs)
