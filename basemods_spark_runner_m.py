@@ -418,7 +418,7 @@ def get_chunks_of_baxh5files(baxh5files, folds=1):
     chunks_info = []
     for bfile in baxh5files:
         chunks_info.extend(get_chunks_of_baxh5file(bfile, folds))
-    return bfile
+    return chunks_info
 
 
 def get_chunks_of_baxh5file(baxh5file, folds=1):

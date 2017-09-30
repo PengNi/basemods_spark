@@ -377,7 +377,7 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     try:
         sftp.put(local_file, remote_file)
     except Exception:
-        print("wrong connection")
+        print("wrong connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
     finally:
         sftp.close()
         ssh.close()
@@ -402,7 +402,7 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     try:
         sftp.get(remote_file, local_file)
     except Exception:
-        print("wrong connection")
+        print("wrong connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
     finally:
         sftp.close()
         ssh.close()
@@ -438,7 +438,7 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
                     remote_filepath, local_filepath)
         return local_filepath
     except Exception:
-        print('wrong connection {}'.format(local_filepath))
+        print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
         print('done transforming data from master node to {}'.format(local_filepath))
 
