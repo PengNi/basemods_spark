@@ -12,6 +12,8 @@ import numpy
 import hashlib
 import ConfigParser
 import paramiko
+import time
+import random
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -35,6 +37,9 @@ COLUMNS = 60
 PAD = 15
 
 max_numpartitions = 10000
+
+# sleep time when get data from master node
+max_sleep_seconds = 20
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +375,7 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     :return:
     """
     flag = 0
+    paramiko.util.log_to_file('paramiko.log')
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(ip, port, user, password)
@@ -398,6 +404,7 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     :return:
     """
     flag = 0
+    paramiko.util.log_to_file('paramiko.log')
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(ip, port, user, password)
@@ -426,6 +433,7 @@ def mktmpdir(x, local_temp_dir):
     return x
 
 
+# FIXME: why always exists errors in the start of RDD transformation?
 def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
     master_ip = MASTERNODE_IP
     master_port = MASTERNODE_PORT
@@ -434,14 +442,13 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
 
     if not os.path.isdir(local_temp_dir):
         os.mkdir(local_temp_dir, 0777)
-    else:
-        os.chmod(local_temp_dir, 0o777)
     try:
         filename = os.path.basename(remote_filepath)
         local_filepath = '/'.join([local_temp_dir, filename])
 
         attemp_times = 2
         for i in range(0, attemp_times):
+            time.sleep(random.randint(0, max_sleep_seconds))
             ifsuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
                                     remote_filepath, local_filepath)
             if ifsuccess > 0:
@@ -1248,14 +1255,14 @@ def basemods_pipe():
     re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
     baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
         .repartition(re_numpartitions)\
-        .coalesce(len(baxh5_filenames))\
-        .map(lambda x: mktmpdir(x, local_temp_dir))
+        .coalesce(len(baxh5_filenames))
     # -------------------------------------------
 
     # FIXME: how to repartition without shuffle
     # FIXME: maybe should try get baxh5file from master node after splitting chunks
     # partition_basenum = len(baxh5_filenames) * baxh5_folds
     aligned_reads_rdd = baxh5nameRDD.\
+        map(lambda x: mktmpdir(x, local_temp_dir)).\
         map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir)).\
         flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
         flatMap(basemods_pipeline_baxh5_operations).\

@@ -415,13 +415,6 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
 
 # ---------------------------------------------------------------------------------
 # convert baxh5 to list------------------------------------------------
-def get_chunks_of_baxh5files(baxh5files, folds=1):
-    chunks_info = []
-    for bfile in baxh5files:
-        chunks_info.extend(get_chunks_of_baxh5file(bfile, folds))
-    return chunks_info
-
-
 def get_chunks_of_baxh5file(baxh5file, folds=1):
     f = h5py.File(baxh5file, "r")
     holenumbers = f['/PulseData/BaseCalls/ZMW/HoleNumber'].value
@@ -567,6 +560,14 @@ def get_h5item_attrs(h5obj, itempath):
 
 
 # functions about scp files from master to worker----------------------
+def mktmpdir(x, local_temp_dir):
+    if not os.path.isdir(local_temp_dir):
+        os.mkdir(local_temp_dir, 0777)
+    else:
+        os.chmod(local_temp_dir, 0o777)
+    return x
+
+
 def add_ip_to_filepath(filepath):
     ip = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
                        if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
@@ -581,12 +582,6 @@ def conv_filepath(master_filepath, worker_dir):
     return '/'.join([worker_dir, os.path.basename(master_filepath)])
 
 
-def conv_filepath_in_chunksinfo(chunkinfo, worker_dir):
-    chunkinfo_key, chunkinfo_val = chunkinfo
-    wfilepath = conv_filepath(chunkinfo_val[0], worker_dir)
-    return chunkinfo_key, (wfilepath, chunkinfo_val[1])
-
-
 def scp_transmit_data(scpinfos, worker_tmp_folder):
     """
 
@@ -595,10 +590,6 @@ def scp_transmit_data(scpinfos, worker_tmp_folder):
     """
     tstart = time.time()
     print('transmit data starting...')
-    if not os.path.isdir(worker_tmp_folder):
-        os.mkdir(worker_tmp_folder, 0777)
-    else:
-        os.chmod(worker_tmp_folder, 0o777)
     count = 1
     for scpinfo in scpinfos:
         mFilepath, wIP = scpinfo
@@ -1317,40 +1308,31 @@ def basemods_pipe():
 
     baxh5_folds = BAXH5_FOLDS
     worker_tmp_folder = TEMP_OUTPUT_FOLDER
-    if baxh5_folds == 1:
-        # FIXME: how to do it smarter?---------------
-        shuffle_factor = 1000
-        numpartitions = len(baxh5_filenames) * shuffle_factor
-        re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
-        baxh5fileinfo = sc.parallelize(baxh5_filenames, len(baxh5_filenames)) \
-            .repartition(re_numpartitions) \
-            .coalesce(len(baxh5_filenames)).persist()
-        # -------------------------------------------
-        scpinfo = baxh5fileinfo.map(add_ip_to_filepath).collect()
-        print('there are {} file_transmition tasks'.format(len(scpinfo)))
-        scp_transmit_data(scpinfo, worker_tmp_folder)
+    # FIXME: how to do it smarter?---------------
+    shuffle_factor = 1000
+    numpartitions = len(baxh5_filenames) * shuffle_factor
+    re_numpartitions = numpartitions if numpartitions < max_numpartitions else max_numpartitions
+    baxh5fileinfo = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
+        .repartition(re_numpartitions)\
+        .coalesce(len(baxh5_filenames))\
+        .persist(StorageLevel.MEMORY_AND_DISK_SER)
+    # -------------------------------------------
+    scpinfo = baxh5fileinfo.map(lambda x: mktmpdir(x, worker_tmp_folder))\
+        .map(add_ip_to_filepath).collect()
+    print('there are {} file_transmition tasks'.format(len(scpinfo)))
+    scp_transmit_data(scpinfo, worker_tmp_folder)
 
+    if baxh5_folds == 1:
         aligned_reads_rdd = baxh5fileinfo\
             .map(lambda x: conv_filepath(x, worker_tmp_folder))\
-            .flatMap(basemods_pipeline_baxh5_filepath_operations).\
-            persist(StorageLevel.MEMORY_AND_DISK_SER)
+            .flatMap(basemods_pipeline_baxh5_filepath_operations)\
+            .persist(StorageLevel.MEMORY_AND_DISK_SER)
     else:
-        allfiles_chunksinfo = get_chunks_of_baxh5files(baxh5_filenames, baxh5_folds)
-        partition_basenum = len(baxh5_filenames) * baxh5_folds
-        baxh5fileinfo = sc.parallelize(allfiles_chunksinfo).\
-            partitionBy(partition_basenum).\
-            persist()
-
-        scpinfo = baxh5fileinfo.map(lambda (x, y): y[0]).\
-            map(add_ip_to_filepath).collect()
-        scpinfo = list(set(scpinfo))
-        print('there are {} file_transmition tasks'.format(len(scpinfo)))
-        scp_transmit_data(scpinfo, worker_tmp_folder)
-
-        aligned_reads_rdd = baxh5fileinfo.\
-            map(lambda x: conv_filepath_in_chunksinfo(x, worker_tmp_folder)).\
-            flatMap(basemods_pipeline_baxh5_operations).\
-            persist(StorageLevel.MEMORY_AND_DISK_SER)
+        aligned_reads_rdd = baxh5fileinfo\
+            .map(lambda x: conv_filepath(x, worker_tmp_folder))\
+            .flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds))\
+            .flatMap(basemods_pipeline_baxh5_operations)\
+            .persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
