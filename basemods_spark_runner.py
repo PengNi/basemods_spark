@@ -19,12 +19,13 @@ import xml.etree.ElementTree as ET
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
+shell_script_sa = 'exec_sawriter.sh'
 parameters_config = 'parameters.conf'
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
 
-# for file name
+# for change file name
 SPACE_ALTER = "_"
 
 # contig attri names
@@ -38,8 +39,8 @@ PAD = 15
 
 max_numpartitions = 10000
 
-# sleep time when get data from master node
-max_sleep_seconds = 20
+# sleep seconds when get data from master node
+max_sleep_seconds = 160
 
 
 # ---------------------------------------------------------------------------
@@ -355,13 +356,6 @@ def get_movieName(baxh5file):
     return movieNameString
 
 
-# name ref contig file
-def name_reference_contig_file(ref_name, contigname):
-    ref_prefix, ref_ext = os.path.splitext(ref_name)
-    contigname = contigname.replace(' ', SPACE_ALTER)
-    return ref_prefix + '.' + contigname + ref_ext
-
-
 # scp.py---------------------------------------------------
 def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     """
@@ -375,20 +369,20 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     :return:
     """
     flag = 0
-    paramiko.util.log_to_file('paramiko.log')
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(ip, port, user, password)
-    sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-    sftp = ssh.open_sftp()
     try:
+        paramiko.util.log_to_file('paramiko.log')
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
         sftp.put(local_file, remote_file)
         flag = 1
-    except Exception:
-        print("wrong connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
-    finally:
         sftp.close()
         ssh.close()
+    except Exception:
+        print("wrong put connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
+    finally:
         return flag
 
 
@@ -404,26 +398,60 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     :return:
     """
     flag = 0
-    paramiko.util.log_to_file('paramiko.log')
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(ip, port, user, password)
-    sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-    sftp = ssh.open_sftp()
     try:
+        paramiko.util.log_to_file('paramiko.log')
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
         sftp.get(remote_file, local_file)
         flag = 1
-    except Exception:
-        print("wrong connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
-    finally:
         sftp.close()
         ssh.close()
+    except Exception:
+        print("wrong get connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
+    finally:
         return flag
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------------
+# calculate .fasta.sa file --------------------------------------------
+def exec_sawriter(sa_script_path, ref_fasta_filepath):
+    sa_operations = "{sa_script} {seymour_home} {ref_fasta_file}".\
+        format(sa_script=sa_script_path,
+               seymour_home=SMRT_ANALYSIS_HOME,
+               ref_fasta_file=ref_fasta_filepath)
+    sa_process = Popen(sa_operations, stdout=PIPE, stderr=PIPE, shell=True)
+    sa_out, sa_error = sa_process.communicate(sa_operations)
+
+    if "[Errno" in sa_error.strip() or "error" in sa_error.strip().lower():
+        raise ValueError("sa process failed to complete!\n"
+                         "try again or use blasr.sawriter to generate the fasta.sa file of your"
+                         "REFERENCE(.fasta) file manually\n"
+                         "(Error)\n stdout: {} \n stderr: {}".
+                         format(sa_out, sa_error))
+
+    if sa_process.returncode != 0:
+        raise ValueError("sa process failed to complete!\n"
+                         "try again or use blasr.sawriter to generate the fasta.sa file of your"
+                         "REFERENCE(.fasta) file manually\n"
+                         "(Non-zero return code)\n stdout: {} \n"
+                         " stderr: {}".format(sa_out, sa_error))
+    else:
+        print("\nsa process logging:\n stdout:{} \n".format(sa_out))
+        return os.path.basename(ref_fasta_filepath) + ".sa"
+
+
+# name ref contig file
+def name_reference_contig_file(ref_name, contigname):
+    ref_prefix, ref_ext = os.path.splitext(ref_name)
+    contigname = contigname.replace(' ', SPACE_ALTER)
+    return ref_prefix + '.' + contigname + ref_ext
+
+
 # get baxh5file from master node---------------------------------------
 def mktmpdir(x, local_temp_dir):
     if not os.path.isdir(local_temp_dir):
@@ -434,7 +462,7 @@ def mktmpdir(x, local_temp_dir):
 
 
 # FIXME: why always exists errors in the start of RDD transformation?
-def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
+def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds):
     master_ip = MASTERNODE_IP
     master_port = MASTERNODE_PORT
     master_user = MASTERNODE_USERNAME
@@ -446,9 +474,13 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir):
         filename = os.path.basename(remote_filepath)
         local_filepath = '/'.join([local_temp_dir, filename])
 
-        attemp_times = 2
+        attemp_times = 100
+        random_seconds = random.randint(0, max_sleep_seconds)
         for i in range(0, attemp_times):
-            time.sleep(random.randint(0, max_sleep_seconds))
+            expected_sleep_seconds = random_seconds * (i + 1)
+            actual_sleep_seconds = expected_sleep_seconds \
+                if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
+            time.sleep(actual_sleep_seconds)
             ifsuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
                                     remote_filepath, local_filepath)
             if ifsuccess > 0:
@@ -508,7 +540,7 @@ def get_chunks_of_baxh5file(baxh5file, folds=1):
     chunk_data_group = group_folds_of_one_baxh5file(chunk_data_info)
     del chunk_data_info
 
-    print('done converting {} to list'.format(baxh5file))
+    print('done splitting {} to {} chunk(s)'.format(baxh5file, folds))
     return map(lambda x: add_each_fold_the_filepath(x, baxh5file),
                chunk_data_group)
 
@@ -621,7 +653,7 @@ def basemods_pipeline_baxh5_operations(keyval):
     name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', SPACE_ALTER)
     baxh5file = name_prefix + ".bax.h5"
     reference_path = SparkFiles.get(REF_FILENAME)
-    referencesa_path = SparkFiles.get(REF_SA_FILENAME)
+    referencesa_path = SparkFiles.get(USED_REF_SA_FILENAME)
     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
 
     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
@@ -1205,13 +1237,19 @@ def write_ref_contigs(ref_dir, ref_name, ref_contigs):
             del sequence
         contig_filepaths.append(contigpath)
     return contig_filepaths
-# -----------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------
 
 
 def basemods_pipe():
+    pipe_start = time.time()
+
+    # get global variables------------------------------------------------------------------
+    # for reference .sa file name
+    global USED_REF_SA_FILENAME
     abs_dir = os.path.dirname(os.path.realpath(__file__))
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
+    # start SparkContext--------------------------------------------------------------------
     SparkContext.setSystemProperty('spark.executor.memory', SPARK_EXECUTOR_MEMORY)
     SparkContext.setSystemProperty('spark.task.cpus', SPARK_TASK_CPUS)
     SparkContext.setSystemProperty('spark.memory.fraction', SPARK_MEMORY_FRACTION)
@@ -1219,11 +1257,20 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
-    # ----------files need to be shared in each node
+    # files need to be shared in each node--------------------------------------------------
     # ref----
     sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
-    # FIXME: need to cal ref_sa file in this script if it was not caled
-    sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
+
+    if REF_SA_FILENAME == 'None' or (not REF_SA_FILENAME.endswith('.sa')):
+        print('exec sawriter (blasr) to generate a .sa file for your reference.')
+        sa_script_path = '/'.join([abs_dir, 'scripts', shell_script_sa])
+        ref_sa_filename = exec_sawriter(sa_script_path, '/'.join([REFERENCE_DIR, REF_FILENAME]))
+        print('sawriter finished. {} is generated'.format(ref_sa_filename))
+        sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
+        USED_REF_SA_FILENAME = ref_sa_filename
+    else:
+        sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
+        USED_REF_SA_FILENAME = REF_SA_FILENAME
     # ref contigs----
     refcontigs = getRefInfoFromFastaFiles(['/'.join([REFERENCE_DIR, REF_FILENAME]), ])
     contig_filepaths = write_ref_contigs(REFERENCE_DIR, REF_FILENAME, refcontigs)
@@ -1237,6 +1284,7 @@ def basemods_pipe():
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
     sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
+    # STEP 1 baxh5->cmph5 (filter, blasr)---------------------------------------------------
     # get all files in cell_data_directory
     pacbio_data_dir = CELL_DATA_DIR
     baxh5_filenames = []
@@ -1263,11 +1311,12 @@ def basemods_pipe():
     # partition_basenum = len(baxh5_filenames) * baxh5_folds
     aligned_reads_rdd = baxh5nameRDD.\
         map(lambda x: mktmpdir(x, local_temp_dir)).\
-        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir)).\
+        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, max_sleep_seconds)).\
         flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
         flatMap(basemods_pipeline_baxh5_operations).\
         persist(StorageLevel.MEMORY_AND_DISK_SER)
 
+    # STEP 2 cmph5->mods.gff/csv (ipdSummary.py)--------------------------------------------
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
     ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
@@ -1307,18 +1356,19 @@ def basemods_pipe():
                                                                refinfos.value))\
         .partitionBy(len(ref_identifiers_count))
 
+    # STEP 3 mods.gff/csv->motif.gff/csv (MotifMaker)---------------------------------------
     motif_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
                                                                       refinfos.value))
     motif_rdd.count()
 
-    # exit
+    # exit----------------------------------------------------------------------------------
     refinfos.destroy()
     ref_splitting_info.destroy()
     moviestriple.destroy()
     aligned_reads_rdd.unpersist()
     SparkContext.stop(sc)
-
+    print('total time cost: {} seconds'.format(time.time()-pipe_start))
 
 if __name__ == '__main__':
     print("spark start------------------------------------")

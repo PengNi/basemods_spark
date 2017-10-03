@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# FIXME ipdsummary.py --identify add all methylation types
 
 # get input params-----------------------------------
 SEYMOUR_HOME=$1

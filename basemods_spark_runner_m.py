@@ -370,19 +370,20 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
     :return:
     """
     flag = 0
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(ip, port, user, password)
-    sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-    sftp = ssh.open_sftp()
     try:
+        paramiko.util.log_to_file('paramiko.log')
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
         sftp.put(local_file, remote_file)
         flag = 1
-    except Exception:
-        print("wrong connection {} {} {}".format(ip, port, user))
-    finally:
         sftp.close()
         ssh.close()
+    except Exception:
+        print("wrong put connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
+    finally:
         return flag
 
 
@@ -397,18 +398,22 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
     :param local_file:
     :return:
     """
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(ip, port, user, password)
-    sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-    sftp = ssh.open_sftp()
+    flag = 0
     try:
+        paramiko.util.log_to_file('paramiko.log')
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip, port, user, password)
+        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
+        sftp = ssh.open_sftp()
         sftp.get(remote_file, local_file)
-    except Exception:
-        print("wrong connection")
-    finally:
+        flag = 1
         sftp.close()
         ssh.close()
+    except Exception:
+        print("wrong get connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
+    finally:
+        return flag
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 

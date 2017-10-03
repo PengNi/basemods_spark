@@ -43,6 +43,8 @@ the spark version of basemods pipeline in SMRT-Analysis
     If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
     
     ```sh
+    chmod +x basemods_spark/scripts/exec_sawriter.sh
+    
     chmod +x basemods_spark/scripts/baxh5_operations.sh
     
     chmod +x basemods_spark/scripts/cmph5_operations.sh
