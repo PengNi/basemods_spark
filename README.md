@@ -33,7 +33,7 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 3. #### Python 2.x and required Python libraries
 
-    If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install *h5py*, *numpy* *paramiko* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
+    If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install *h5py*, *numpy*, *paramiko* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
 
 
 ### How to use basemods_spark

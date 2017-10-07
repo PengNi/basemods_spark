@@ -12,6 +12,7 @@ import numpy
 import hashlib
 import ConfigParser
 import paramiko
+import socket
 import time
 import random
 import xml.etree.ElementTree as ET
@@ -461,7 +462,6 @@ def mktmpdir(x, local_temp_dir):
     return x
 
 
-# FIXME: why always exists errors in the start of RDD transformation?
 def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds):
     master_ip = MASTERNODE_IP
     master_port = MASTERNODE_PORT
@@ -470,14 +470,12 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
 
     if not os.path.isdir(local_temp_dir):
         os.mkdir(local_temp_dir, 0777)
+    filename = os.path.basename(remote_filepath)
+    local_filepath = '/'.join([local_temp_dir, filename])
     try:
-        filename = os.path.basename(remote_filepath)
-        local_filepath = '/'.join([local_temp_dir, filename])
-
         attemp_times = 100
-        random_seconds = random.randint(0, max_sleep_seconds)
         for i in range(0, attemp_times):
-            expected_sleep_seconds = random_seconds * (i + 1)
+            expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
             actual_sleep_seconds = expected_sleep_seconds \
                 if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
             time.sleep(actual_sleep_seconds)
@@ -487,11 +485,11 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
                 print("{} {} success".format(master_ip, remote_filepath))
                 # todo write a success flag file
                 break
-        return local_filepath
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
         print('done transforming data from master node to {}'.format(local_filepath))
+        return local_filepath
 
 
 # convert baxh5 to list------------------------------------------------
@@ -1184,6 +1182,36 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
         return motifs_gff_gz_filename
 
 
+def writemods_of_each_chromosome(keyval, refinfo):
+    reffullname = keyval[0]
+    modsinfo = list(keyval[1])
+
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+    else:
+        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+
+    # setting paths and variables
+    # reference_path = SparkFiles.get(REF_FILENAME)
+    contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
+
+    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    gfffilename = name_prefix + ".modifications.gff"
+    csvfilename = name_prefix + ".modifications.csv"
+
+    gfffilepath = '/'.join([TEMP_OUTPUT_FOLDER, gfffilename])
+    csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
+    writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
+
+    local_ip = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
+                             if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
+                                                                   s.getsockname()[0], s.close())
+                                                                  for s in [socket.socket(socket.AF_INET,
+                                                                                          socket.SOCK_DGRAM)]][0][1]])
+                if l][0][0]
+    return local_ip, gfffilepath, csvfilepath
+
+
 def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath):
     """
 
@@ -1357,10 +1385,17 @@ def basemods_pipe():
         .partitionBy(len(ref_identifiers_count))
 
     # STEP 3 mods.gff/csv->motif.gff/csv (MotifMaker)---------------------------------------
-    motif_rdd = modification_rdd.groupByKey()\
-        .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
-                                                                      refinfos.value))
-    motif_rdd.count()
+    # motif_rdd = modification_rdd.groupByKey()\
+    #     .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
+    #                                                                   refinfos.value))
+    # motif_rdd.count()
+    modsinfo_rdd = modification_rdd.groupByKey() \
+        .map(lambda (x, y): writemods_of_each_chromosome((x, y),
+                                                         refinfos.value))
+    modsinfo = modsinfo_rdd.collect()
+    print('base modification infos are saved in:')
+    for mi in modsinfo:
+        print(mi)
 
     # exit----------------------------------------------------------------------------------
     refinfos.destroy()
@@ -1369,6 +1404,7 @@ def basemods_pipe():
     aligned_reads_rdd.unpersist()
     SparkContext.stop(sc)
     print('total time cost: {} seconds'.format(time.time()-pipe_start))
+
 
 if __name__ == '__main__':
     print("spark start------------------------------------")

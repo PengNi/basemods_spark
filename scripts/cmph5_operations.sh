@@ -91,13 +91,3 @@ echo -e "Task computeModifications finished on $(date)\n\n"
 rcode=$?
 echo "cmph5 operations finished on $(date) with exit code ${rcode}."
 exit ${rcode}
-
-
-
-
-
-
-
-
-
-
