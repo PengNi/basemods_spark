@@ -1389,7 +1389,7 @@ def basemods_pipe():
     #     .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
     #                                                                   refinfos.value))
     # motif_rdd.count()
-    modsinfo_rdd = modification_rdd.groupByKey() \
+    modsinfo_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): writemods_of_each_chromosome((x, y),
                                                          refinfos.value))
     modsinfo = modsinfo_rdd.collect()

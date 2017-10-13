@@ -10,7 +10,7 @@ the spark version of basemods pipeline in SMRT-Analysis
 
 2. #### SMRT-Analysis
 
-    2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) (v2.3.0) in **each worker node** of your *Hadoop/Spark* cluster.
+    2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) (v2.3.0) in **each worker node** of your *Hadoop/Spark* cluster. (or use NFS?)
     
     2.2 In **each worker node**, replace *ipdsummary.py* and *KineticWorker.py* in SMRT-Analysis with the modified scripts in the directory "basemods_spark/scripts".
      + copy *basemods_spark/scripts/ipdSummary.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin*
