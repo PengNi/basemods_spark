@@ -43,6 +43,11 @@ max_numpartitions = 10000
 # sleep seconds when get data from master node
 max_sleep_seconds = 160
 
+# for split reference to multi chunks
+max_chunk_length = 25000
+max_reads_per_chunk = 5000
+limitation_readsnum = max_reads_per_chunk * 5
+
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -838,10 +843,10 @@ def _queueChunksForReference(numHits, refLength):
         return
 
     # Maximum chunk size (set no larger than 1Mb for now)
-    MAX_BLOCK_SIZE = 25000
+    MAX_BLOCK_SIZE = max_chunk_length
 
     # Maximum number of hits per chunk
-    MAX_HITS = 5000
+    MAX_HITS = max_reads_per_chunk
     # nBases = min(refInfo.Length, refMaxLength)
     nBases = min(refLength, refMaxLength)
 
@@ -875,7 +880,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     :return: (reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, }))
     """
     (reffullname, (ref_start, ref_end, ref_folds)) = keyval[0]
-    reads_info = list(keyval[1])
+    reads_info = [read_keyval[1] for read_keyval in list(keyval[1])]
     name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
 
     if len(reads_info) > 0:
@@ -1090,8 +1095,7 @@ def creat_redundant_reads(read_keyval, ref_splitting_info):
     # FIXED: classify the reads by covering ref_splitting_range (start, end)
     # FIXED: or (start-pad, end+pad)?. For now, use (start, end)
     # FIXED: answer: use (start, end) is enough
-    (rkey, rval) = read_keyval
-    (read_refid, target_start, target_end) = rkey
+    (read_refid, target_start, target_end) = read_keyval[0]
     read_ref_splitting_info = ref_splitting_info[read_refid]
 
     res_keyval = []
@@ -1099,11 +1103,12 @@ def creat_redundant_reads(read_keyval, ref_splitting_info):
         refstart, refend = ref_range[0], ref_range[1]
         # refstart, refend = refstart - PAD, refend + PAD
         if not (target_end <= refstart or target_start >= refend):
-            res_keyval.append(((read_refid, ref_range), rval))
+            res_keyval.append(((read_refid, ref_range), read_keyval))
     return res_keyval
 
 
 def adjust_ref_splitting_info(ref_splitting_info, factor=2):
+    factor = int(factor)
     if factor == 0:
         factor = 1
     for refid in ref_splitting_info.keys():
@@ -1131,6 +1136,89 @@ def adjust_ref_splitting_info(ref_splitting_info, factor=2):
 
         ref_splitting_info[refid] = ref_splitting_adjustedrange
     return ref_splitting_info
+
+
+def remove_partofreads_from_repeats(refchunk2reads):
+    reads = list(refchunk2reads[1])
+    if len(reads) > limitation_readsnum:
+        # FIXME: filter/remove reads based on certain rules, e.g. aligned quality.
+        # FIXME: check SamFilter in BLASR for some inspiration
+        return refchunk2reads[0], random.sample(reads, limitation_readsnum)
+    else:
+        return refchunk2reads[0], reads
+
+
+# FIXME: need to re-code this function, make it more pythonic
+def resplit_refchunks(atomchunk2readsnum, max_chunknum):
+    """
+
+    :param atomchunk2readsnum: [(refinfo<tuple>, readsnum<int>), (), ]
+    :param max_chunknum:
+    :return:
+    """
+    atomlen = len(atomchunk2readsnum)
+    if atomlen == 0:
+        return None
+    rechunks_info = []
+    readnum_sum_tmp = atomchunk2readsnum[0][1]
+    perchunk_tmp = [atomchunk2readsnum[0][0]]
+    for i in range(1, atomlen):
+        if atomchunk2readsnum[i][0][0] != atomchunk2readsnum[i-1][0][0]:
+            if len(perchunk_tmp) > 0:
+                rechunks_info.append(perchunk_tmp)
+            perchunk_tmp = [atomchunk2readsnum[i][0]]
+            readnum_sum_tmp = atomchunk2readsnum[i][1]
+        else:
+            if len(perchunk_tmp) >= max_chunknum:
+                rechunks_info.append(perchunk_tmp)
+                readnum_sum_tmp = atomchunk2readsnum[i][1]
+                perchunk_tmp = [atomchunk2readsnum[i][0]]
+                continue
+            readnum_sum_tmp += atomchunk2readsnum[i][1]
+            if readnum_sum_tmp >= limitation_readsnum:
+                if readnum_sum_tmp - atomchunk2readsnum[i][1] > 0:
+                    rechunks_info.append(perchunk_tmp)
+                if atomchunk2readsnum[i][1] >= limitation_readsnum:
+                    rechunks_info.append([atomchunk2readsnum[i][0]])
+                    readnum_sum_tmp = 0
+                    perchunk_tmp = []
+                else:
+                    readnum_sum_tmp = atomchunk2readsnum[i][1]
+                    perchunk_tmp.append(atomchunk2readsnum[i][0])
+            else:
+                perchunk_tmp.append(atomchunk2readsnum[i][0])
+    # check when for-loop is done
+    if len(perchunk_tmp) > 0:
+        rechunks_info.append(perchunk_tmp)
+    atomchunk2enlargedchunk = {}
+    for rechunks in rechunks_info:
+        en_reffullname = rechunks[0][0]
+        rstart = min(map(lambda x: x[1][0], rechunks))
+        rend = max(map(lambda x: x[1][1], rechunks))
+        folds = numpy.sum(map(lambda x: x[1][2], rechunks))
+        enlargedchunk = (en_reffullname, (rstart, rend, folds))
+        for rechunk in rechunks:
+            atomchunk2enlargedchunk[rechunk] = enlargedchunk
+    return atomchunk2enlargedchunk
+
+
+def remove_redundant_reads(enlargedchunk2readsinfo):
+    """
+
+    :param enlargedchunk2readsinfo: (enchunkinfo, [(chunkinfo, [read, read,]), ()])
+    :return: (enchunkinfo, [read, read,...])
+    """
+    chunkinfo = enlargedchunk2readsinfo[0]
+    readsgroup = sorted(list(enlargedchunk2readsinfo[1]), key=lambda x: x[0][1][0])
+    totalreads = []
+    totalreads.extend(readsgroup[0][1])
+    for i in range(1, len(readsgroup)):
+        (rstart, rend, rfold) = readsgroup[i][0][1]
+        for read in readsgroup[i][1]:
+            if read[0][1] >= rstart:
+                totalreads.append(read)
+    del readsgroup
+    return chunkinfo, totalreads
 
 
 # operations for each rdd element in modificationRDD-----------------------
@@ -1335,7 +1423,6 @@ def basemods_pipe():
     # -------------------------------------------
 
     # FIXME: how to repartition without shuffle
-    # FIXME: maybe should try get baxh5file from master node after splitting chunks
     # partition_basenum = len(baxh5_filenames) * baxh5_folds
     aligned_reads_rdd = baxh5nameRDD.\
         map(lambda x: mktmpdir(x, local_temp_dir)).\
@@ -1357,19 +1444,32 @@ def basemods_pipe():
     for ref_id in ref_identifiers_count.keys():
         ref_splitting_info[ref_id] = _queueChunksForReference(ref_identifiers_count[ref_id],
                                                               refinfos.value[ref_id][SEQUENCE_LENGTH])
-    # adjust ref_splitting_info
-    # dfactor = REF_CHUNKS_FACTOR
-    dfactor = SPARK_TASK_CPUS
-    ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
+    # # adjust ref_splitting_info
+    # # dfactor = REF_CHUNKS_FACTOR
+    # dfactor = SPARK_TASK_CPUS
+    # ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
+    ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, 1))
 
     chunk_sum = 0
     for refid in ref_splitting_info.value.keys():
         chunk_sum += len(ref_splitting_info.value[refid])
 
-    adjusted_reads_rdd = aligned_reads_rdd\
+    atomchunks_rdd = aligned_reads_rdd\
         .flatMap(lambda x: creat_redundant_reads(x, ref_splitting_info.value))\
-        .partitionBy(chunk_sum)
-    cmph5rdd = adjusted_reads_rdd.groupByKey()
+        .partitionBy(chunk_sum)\
+        .groupByKey()\
+        .map(remove_partofreads_from_repeats)\
+        .persist(StorageLevel.MEMORY_AND_DISK)
+
+    atomchunk2readsnum = sorted(atomchunks_rdd.map(lambda (x, y): (x, len(y))).collect(),
+                                key=lambda chunk: (chunk[0][0], chunk[0][1][0]))
+    # unpersist aligned_reads_rdd
+    aligned_reads_rdd.unpersist()
+    max_chunknum = int(SPARK_TASK_CPUS)
+    atomchunk2enlargedchunk = sc.broadcast(resplit_refchunks(atomchunk2readsnum,
+                                                             max_chunknum))
+    cmph5rdd = atomchunks_rdd.map(lambda (x, y): (atomchunk2enlargedchunk.value[x], (x, y)))\
+        .groupByKey().map(remove_redundant_reads)
 
     # movie info to be shared to each node
     moviestriple = sc.broadcast(
@@ -1384,7 +1484,7 @@ def basemods_pipe():
                                                                refinfos.value))\
         .partitionBy(len(ref_identifiers_count))
 
-    # STEP 3 mods.gff/csv->motif.gff/csv (MotifMaker)---------------------------------------
+    # # STEP 3 mods.gff/csv->motif.gff/csv (MotifMaker)---------------------------------------
     # motif_rdd = modification_rdd.groupByKey()\
     #     .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
     #                                                                   refinfos.value))
@@ -1401,9 +1501,11 @@ def basemods_pipe():
     refinfos.destroy()
     ref_splitting_info.destroy()
     moviestriple.destroy()
-    aligned_reads_rdd.unpersist()
+    atomchunk2enlargedchunk.destroy()
+    # aligned_reads_rdd.unpersist()
+    atomchunks_rdd.unpersist()
     SparkContext.stop(sc)
-    print('total time cost: {} seconds'.format(time.time()-pipe_start))
+    print('total time cost: {} seconds'.format(time.time() - pipe_start))
 
 
 if __name__ == '__main__':
