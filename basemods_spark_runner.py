@@ -4,6 +4,7 @@ from pyspark import SparkContext, SparkConf, SparkFiles
 from pyspark.storagelevel import StorageLevel
 from subprocess import Popen, PIPE
 from itertools import groupby
+from pbcore.io import BasH5Reader
 import h5py
 import shlex
 import os
@@ -41,7 +42,7 @@ PAD = 15
 max_numpartitions = 10000
 
 # sleep seconds when get data from master node
-max_sleep_seconds = 160
+max_sleep_seconds = 10
 
 # for split reference to multi chunks
 max_chunk_length = 25000
@@ -69,6 +70,9 @@ def getParametersFromFile(config_file):
     global IPDMAXCOVERAGE
     global METHYLATION_TYPES
 
+    global GET_IPD_FROM_BASH5
+    global GET_IPD_FROM_CMPH5
+
     global MASTERNODE_IP
     global MASTERNODE_PORT
     global MASTERNODE_USERNAME
@@ -91,6 +95,9 @@ def getParametersFromFile(config_file):
     # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
     IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
     METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
+
+    GET_IPD_FROM_BASH5 = conf.get("PipelineArgs", "GET_IPD_FROM_BASH5")
+    GET_IPD_FROM_CMPH5 = conf.get("PipelineArgs", "GET_IPD_FROM_CMPH5")
 
     MASTERNODE_IP = conf.get("MasterNodeInfo", "HOST")
     MASTERNODE_PORT = conf.getint("MasterNodeInfo", "HOSTPORT")
@@ -458,15 +465,94 @@ def name_reference_contig_file(ref_name, contigname):
     return ref_prefix + '.' + contigname + ref_ext
 
 
-# get baxh5file from master node---------------------------------------
-def mktmpdir(x, local_temp_dir):
-    if not os.path.isdir(local_temp_dir):
-        os.mkdir(local_temp_dir, 0777)
+# for write ipd info --------------------------------------------------
+def asciiFromQvs(a):
+    return (numpy.clip(a, 0, 93).astype(numpy.uint8) + 33).tostring()
+
+
+def zmwReads(inBasH5, readType='subreads'):
+    """
+    Extract all reads of the appropriate read type
+    """
+    for zmw in inBasH5:
+        if readType == "ccs":
+            r = zmw.ccsRead
+            if r:
+                yield r
+        elif readType == "unrolled":
+            yield zmw.read()
+        else:
+            for r in zmw.subreads:
+                yield r
+
+
+def write_ipd_of_bash5(inBasH5File, outIpdInfoFile):
+    DELIMITER1 = "@"
+    DELIMITER2 = "+quality value"
+    DELIMITER3 = "+IPD value"
+
+    start = time.time()
+    inBasH5 = BasH5Reader(inBasH5File)
+    issuccess = 0
+    try:
+        outIpdInfo = open(outIpdInfoFile, 'w')
+        for zmwRead in zmwReads(inBasH5):
+            readinfotmp = "\n".join([DELIMITER1 + zmwRead.readName,
+                                     zmwRead.basecalls(),
+                                     DELIMITER2,
+                                     asciiFromQvs(zmwRead.QualityValue()),
+                                     DELIMITER3,
+                                     " ".join(map(str, zmwRead.IPD()))])
+            outIpdInfo.write(readinfotmp + '\n')
+        outIpdInfo.flush()
+        outIpdInfo.close()
+        print("the IPD info of {} has been extracted and written.\ncost {} seconds"
+              .format(inBasH5File, time.time() - start))
+        issuccess = 1
+    except IOError:
+        print("IOError while writing {}".format(outIpdInfoFile))
+    finally:
+        return issuccess
+
+
+def get_ipdvalue_from_baxh5(inBaxH5File, master_data_dir, max_sleep_seconds):
+    name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
+    dirpath = os.path.dirname(inBaxH5File)
+    outIpdInfoFileName = name_prefix + ".fastipd"
+    outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+
+    wissuccess = write_ipd_of_bash5(inBaxH5File, outIpdInfoFile)
+    if wissuccess:
+        master_ip = MASTERNODE_IP
+        master_port = MASTERNODE_PORT
+        master_user = MASTERNODE_USERNAME
+        master_passwd = MASTERNODE_USERPASSWD
+
+        remote_filepath = '/'.join([master_data_dir, outIpdInfoFileName])
+        try:
+            attemp_times = 100
+            for i in range(0, attemp_times):
+                expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
+                actual_sleep_seconds = expected_sleep_seconds \
+                    if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
+                time.sleep(actual_sleep_seconds)
+                issuccess = ssh_scp_put(master_ip, master_port, master_user, master_passwd,
+                                        outIpdInfoFile, remote_filepath)
+                if issuccess > 0:
+                    print("{} {} success".format(master_ip, remote_filepath))
+                    # todo write a success flag file
+                    break
+        except Exception:
+            print('wrong connection remote_filepath: {}'.format(remote_filepath))
+        finally:
+            print('done transforming data from local node to {}'.format(remote_filepath))
+            return inBaxH5File
     else:
-        os.chmod(local_temp_dir, 0o777)
-    return x
+        print("failed to write {}".format(outIpdInfoFile))
+        return inBaxH5File
 
 
+# get baxh5file from master node---------------------------------------
 def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds):
     master_ip = MASTERNODE_IP
     master_port = MASTERNODE_PORT
@@ -484,12 +570,16 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
             actual_sleep_seconds = expected_sleep_seconds \
                 if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
             time.sleep(actual_sleep_seconds)
-            ifsuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
+            issuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
                                     remote_filepath, local_filepath)
-            if ifsuccess > 0:
+            if issuccess > 0:
                 print("{} {} success".format(master_ip, remote_filepath))
                 # todo write a success flag file
                 break
+        # ----transmit ipd value to master node
+        # FIXME: need to delete this when it is useless
+        if str(GET_IPD_FROM_BASH5).lower() == 'yes':
+            get_ipdvalue_from_baxh5(local_filepath, CELL_DATA_DIR, max_sleep_seconds)
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
@@ -1373,7 +1463,7 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
-    # files need to be shared in each node--------------------------------------------------
+    # files need to be shared to each node--------------------------------------------------
     # ref----
     sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
 
@@ -1420,15 +1510,13 @@ def basemods_pipe():
     baxh5nameRDD = sc.parallelize(baxh5_filenames, len(baxh5_filenames))\
         .repartition(re_numpartitions)\
         .coalesce(len(baxh5_filenames))
-    # -------------------------------------------
 
     # FIXME: how to repartition without shuffle
     # partition_basenum = len(baxh5_filenames) * baxh5_folds
-    aligned_reads_rdd = baxh5nameRDD.\
-        map(lambda x: mktmpdir(x, local_temp_dir)).\
-        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, max_sleep_seconds)).\
-        flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)).\
-        flatMap(basemods_pipeline_baxh5_operations).\
+    aligned_reads_rdd = baxh5nameRDD. \
+        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, max_sleep_seconds)). \
+        flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
+        flatMap(basemods_pipeline_baxh5_operations). \
         persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     # STEP 2 cmph5->mods.gff/csv (ipdSummary.py)--------------------------------------------
