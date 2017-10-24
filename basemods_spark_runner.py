@@ -42,7 +42,7 @@ PAD = 15
 max_numpartitions = 10000
 
 # sleep seconds when get data from master node
-max_sleep_seconds = 10
+max_sleep_seconds = 160
 
 # for split reference to multi chunks
 max_chunk_length = 25000
