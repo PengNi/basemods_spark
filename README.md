@@ -8,7 +8,7 @@ the spark version of basemods pipeline in SMRT-Analysis
 
     Setting up an [Hadoop](http://hadoop.apache.org/)/[Spark](https://spark.apache.org/) cluster.
 
-2. #### SMRT-Analysis
+~~2. #### SMRT-Analysis~~
 
     2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) (v2.3.0) in **each worker node** of your *Hadoop/Spark* cluster. (or use NFS?)
     

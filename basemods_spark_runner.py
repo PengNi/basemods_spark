@@ -16,6 +16,7 @@ import paramiko
 import socket
 import time
 import random
+import shutil
 import xml.etree.ElementTree as ET
 
 shell_script_baxh5 = 'baxh5_operations.sh'
@@ -42,7 +43,7 @@ PAD = 15
 max_numpartitions = 10000
 
 # sleep seconds when get data from master node
-max_sleep_seconds = 160
+max_sleep_seconds = 100
 
 # for split reference to multi chunks
 max_chunk_length = 25000
@@ -393,7 +394,7 @@ def ssh_scp_put(ip, port, user, password, local_file, remote_file):
         flag = 1
         sftp.close()
         ssh.close()
-    except Exception:
+    except OSError:
         print("wrong put connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
     finally:
         return flag
@@ -422,10 +423,31 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
         flag = 1
         sftp.close()
         ssh.close()
-    except Exception:
+    except OSError:
         print("wrong get connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
     finally:
         return flag
+
+
+def worker_put_master(mip, mport, muser, mpassword, wfile, mfile):
+    try:
+        attemp_times = 100
+        for i in range(0, attemp_times):
+            expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
+            actual_sleep_seconds = expected_sleep_seconds \
+                if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
+            time.sleep(actual_sleep_seconds)
+            issuccess = ssh_scp_put(mip, mport, muser, mpassword,
+                                    wfile, mfile)
+            if issuccess > 0:
+                print("{} {} success".format(mip, mfile))
+                # todo write a success flag file
+                break
+    except Exception:
+        print('wrong connection remote_filepath: {}'.format(mfile))
+    finally:
+        print('done transmitting data from local node to {}'.format(mfile))
+        return mfile
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
@@ -545,7 +567,7 @@ def get_ipdvalue_from_baxh5(inBaxH5File, master_data_dir, max_sleep_seconds):
         except Exception:
             print('wrong connection remote_filepath: {}'.format(remote_filepath))
         finally:
-            print('done transforming data from local node to {}'.format(remote_filepath))
+            print('done transmitting data from local node to {}'.format(remote_filepath))
             return inBaxH5File
     else:
         print("failed to write {}".format(outIpdInfoFile))
@@ -560,7 +582,11 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
     master_passwd = MASTERNODE_USERPASSWD
 
     if not os.path.isdir(local_temp_dir):
-        os.mkdir(local_temp_dir, 0777)
+        try:
+            os.mkdir(local_temp_dir, 0777)
+        except IOError:
+            print('local temp directory {} exists.'.format(local_temp_dir))
+
     filename = os.path.basename(remote_filepath)
     local_filepath = '/'.join([local_temp_dir, filename])
     try:
@@ -583,7 +609,7 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
-        print('done transforming data from master node to {}'.format(local_filepath))
+        print('done transmitting data from master node to {}'.format(local_filepath))
         return local_filepath
 
 
@@ -752,9 +778,10 @@ def basemods_pipeline_baxh5_operations(keyval):
     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
 
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
-        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-    else:
-        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+        try:
+            os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+        except IOError:
+            print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
     baxh5_dir = TEMP_OUTPUT_FOLDER
     baxh5path = baxh5_dir + '/' + baxh5file
@@ -975,9 +1002,10 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
 
     if len(reads_info) > 0:
         if not os.path.isdir(TEMP_OUTPUT_FOLDER):
-            os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-        else:
-            os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+            try:
+                os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+            except IOError:
+                print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
         # setting paths and variables
         contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
@@ -1317,9 +1345,10 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     modsinfo = list(keyval[1])
 
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
-        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-    else:
-        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
+        try:
+            os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+        except IOError:
+            print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
     # setting paths and variables
     # reference_path = SparkFiles.get(REF_FILENAME)
@@ -1360,36 +1389,6 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
         return motifs_gff_gz_filename
 
 
-def writemods_of_each_chromosome(keyval, refinfo):
-    reffullname = keyval[0]
-    modsinfo = list(keyval[1])
-
-    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
-        os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-    else:
-        os.chmod(TEMP_OUTPUT_FOLDER, 0o777)
-
-    # setting paths and variables
-    # reference_path = SparkFiles.get(REF_FILENAME)
-    contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
-
-    name_prefix = reffullname.replace(' ', SPACE_ALTER)
-    gfffilename = name_prefix + ".modifications.gff"
-    csvfilename = name_prefix + ".modifications.csv"
-
-    gfffilepath = '/'.join([TEMP_OUTPUT_FOLDER, gfffilename])
-    csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
-    writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
-
-    local_ip = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
-                             if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
-                                                                   s.getsockname()[0], s.close())
-                                                                  for s in [socket.socket(socket.AF_INET,
-                                                                                          socket.SOCK_DGRAM)]][0][1]])
-                if l][0][0]
-    return local_ip, gfffilepath, csvfilepath
-
-
 def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath):
     """
 
@@ -1419,6 +1418,49 @@ def writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepa
             wf.write(mods_slice[1]['csv'])
 
 
+def get_ip_of_node():
+    node_ip = [l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2]
+                            if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 53)),
+                                                                  s.getsockname()[0], s.close())
+                                                                 for s in [socket.socket(socket.AF_INET,
+                                                                                         socket.SOCK_DGRAM)]][
+                                                                    0][1]])
+               if l][0][0]
+    return node_ip
+
+
+def writemods_of_each_chromosome(keyval, refinfo):
+    reffullname = keyval[0]
+    modsinfo = list(keyval[1])
+
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        try:
+            os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+        except IOError:
+            print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
+
+    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    gfffilename = name_prefix + ".modifications.gff"
+    csvfilename = name_prefix + ".modifications.csv"
+
+    gfffilepath = '/'.join([TEMP_OUTPUT_FOLDER, gfffilename])
+    csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
+    writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
+
+    master_ip = MASTERNODE_IP
+    master_port = MASTERNODE_PORT
+    master_user = MASTERNODE_USERNAME
+    master_passwd = MASTERNODE_USERPASSWD
+
+    mgfffilepath = '/'.join([CELL_DATA_DIR, gfffilename])
+    worker_put_master(master_ip, master_port, master_user,
+                      master_passwd, gfffilepath, mgfffilepath)
+    mcsvfilepath = '/'.join([CELL_DATA_DIR, csvfilename])
+    worker_put_master(master_ip, master_port, master_user,
+                      master_passwd, csvfilepath, mcsvfilepath)
+    return mgfffilepath, mcsvfilepath
+
+
 # write each contig in a ref_fasta to a single file---------------
 def write_ref_contigs(ref_dir, ref_name, ref_contigs):
     """
@@ -1443,6 +1485,19 @@ def write_ref_contigs(ref_dir, ref_name, ref_contigs):
             del sequence
         contig_filepaths.append(contigpath)
     return contig_filepaths
+
+
+# to clear temp folder in each worker node---------------
+def rm_temp_folder(temp_folder):
+    issuccess = 0
+    if os.path.isdir(temp_folder):
+        try:
+            shutil.rmtree(temp_folder)
+            issuccess = 1
+            print("temp folder of {} has been deleted.".format(get_ip_of_node()))
+        except OSError:
+            print("something is wrong when deleting temp folder of {}, but don't worry.".format(get_ip_of_node()))
+    return issuccess
 # ------------------------------------------------------------------------------------------
 
 
@@ -1581,17 +1636,29 @@ def basemods_pipe():
         .map(lambda (x, y): writemods_of_each_chromosome((x, y),
                                                          refinfos.value))
     modsinfo = modsinfo_rdd.collect()
-    print('base modification infos are saved in:')
+    print('base modifications info are saved in:')
     for mi in modsinfo:
         print(mi)
 
-    # exit----------------------------------------------------------------------------------
+    # clear persisted rdd and broadcast variables----------------------------------------------
+    # aligned_reads_rdd.unpersist()
+    atomchunks_rdd.unpersist()
     refinfos.destroy()
     ref_splitting_info.destroy()
     moviestriple.destroy()
     atomchunk2enlargedchunk.destroy()
-    # aligned_reads_rdd.unpersist()
-    atomchunks_rdd.unpersist()
+
+    # rm temp folder of each worker node-------------------------------------------------------
+    # can't guarantee rm every worker's temp folder
+    worker_num = 40
+    rdd_ele_num = worker_num * 10
+    rm_num = sc.range(rdd_ele_num, numSlices=rdd_ele_num)\
+        .map(lambda x: TEMP_OUTPUT_FOLDER)\
+        .map(rm_temp_folder)\
+        .reduce(lambda x, y: x + y)
+    print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
+
+    # exit-------------------------------------------------------------------------------------
     SparkContext.stop(sc)
     print('total time cost: {} seconds'.format(time.time() - pipe_start))
 
