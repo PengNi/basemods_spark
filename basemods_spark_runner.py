@@ -584,7 +584,7 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
     if not os.path.isdir(local_temp_dir):
         try:
             os.mkdir(local_temp_dir, 0777)
-        except IOError:
+        except:
             print('local temp directory {} exists.'.format(local_temp_dir))
 
     filename = os.path.basename(remote_filepath)
@@ -780,7 +780,7 @@ def basemods_pipeline_baxh5_operations(keyval):
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
         try:
             os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-        except IOError:
+        except:
             print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
     baxh5_dir = TEMP_OUTPUT_FOLDER
@@ -1004,7 +1004,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         if not os.path.isdir(TEMP_OUTPUT_FOLDER):
             try:
                 os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-            except IOError:
+            except:
                 print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
         # setting paths and variables
@@ -1347,7 +1347,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
         try:
             os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-        except IOError:
+        except:
             print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
     # setting paths and variables
@@ -1436,7 +1436,7 @@ def writemods_of_each_chromosome(keyval, refinfo):
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
         try:
             os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
-        except IOError:
+        except:
             print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
     name_prefix = reffullname.replace(' ', SPACE_ALTER)

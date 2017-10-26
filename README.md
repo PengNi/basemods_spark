@@ -1,35 +1,34 @@
 ## basemods on spark
 
 ### Overview
-the spark version of basemods pipeline in SMRT-Analysis
+the spark version of basemods pipeline in SMRT-Analysis (v2.3.0)
 
 ### Set up the environment
+
+The OSs must be **Linux**.
+
 1. #### Hadoop/Spark
 
     Setting up an [Hadoop](http://hadoop.apache.org/)/[Spark](https://spark.apache.org/) cluster.
 
-~~2. #### SMRT-Analysis~~
+2. #### SMRT-Analysis
 
-    2.1 Install [SMRT-Analysis](https://github.com/PacificBiosciences/SMRT-Analysis) (v2.3.0) in **each worker node** of your *Hadoop/Spark* cluster. (or use NFS?)
+    For now, we are using SMRT-Analysis v2.3.0
+
+    2.1 Download [smrtanalysis.tar.gz](https://1drv.ms/u/s!AgfGWBktzWTwgjc7p4vgxt15FPQE).
     
-    2.2 In **each worker node**, replace *ipdsummary.py* and *KineticWorker.py* in SMRT-Analysis with the modified scripts in the directory "basemods_spark/scripts".
-     + copy *basemods_spark/scripts/ipdSummary.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin*
-
-      ```sh
-      chmod +x basemods_spark/scripts/ipdSummary.py
-      
-      sudo mv $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/ipdSummary.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/ipdSummary.py.bak
-      
-      sudo cp basemods_spark/scripts/ipdSummary.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/bin/
-      ```
-
-    + copy *basemods_spark/scripts/KineticWorker.py* to *$SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools*
-   
+    2.2 Copy _smrtanalysis.tar.gz_ to each worker node of your Spark cluster. Then decompress it to a desired directory.
     ```sh
-    sudo mv $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools/KineticWorker.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools/KineticWorker.py.bak
-    
-    sudo cp basemods_spark/scripts/KineticWorker.py $SMRT_HOME/install/smrtanalysis_2.3.0.140936/analysis/lib/python2.7/kineticsTools/
+    # suppose you want to decompress smrtanalysis.tar.gz to /home/hadoop, 
+    # using the following command: 
+    tar -xhzvf smrtanalysis.tar.gz -C /home/hadoop
     ```
+    **Note**:
+    
+    (1). The decompressed location of smrtanalysis.tar.gz must be the same on all worker nodes. Don't forget to set the variable *SMRT\_ANALYSIS\_HOME* in parameters.conf. (Suppose you have decompressed _smrtanalysis.tar.gz_ to _/home/hadoop_ on all worker nodes, then you have to set *SMRT\_ANALYSIS\_HOME=/home/hadoop/smrtanalysis* in parameters.conf)
+    
+    (2). To preserve symbolic links in the _tar.gz_ file, "_-h_" must be used when using _tar_ command.
+
 
 3. #### Python 2.x and required Python libraries
 
