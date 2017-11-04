@@ -1257,11 +1257,20 @@ def adjust_ref_splitting_info(ref_splitting_info, factor=2):
 
 
 def remove_partofreads_from_repeats(refchunk2reads):
+    trim_strategy = 'mapqv'  # 'mapqv' or 'random'
+
     reads = list(refchunk2reads[1])
     if len(reads) > limitation_readsnum:
-        # FIXME: filter/remove reads based on certain rules, e.g. aligned quality.
-        # FIXME: check SamFilter in BLASR for some inspiration
-        return refchunk2reads[0], random.sample(reads, limitation_readsnum)
+        if trim_strategy == 'mapqv':
+            ALN_INDEX = 'AlnInfo/AlnIndex'
+            MAPQV = 13
+            mapqvs = [read[1][ALN_INDEX][MAPQV] for read in reads]
+            sorted_idxs = [a[0] for a in sorted(enumerate(mapqvs), key=lambda x: x[1], reverse=True)]
+
+            keeped_reads = [reads[a] for a in sorted_idxs[0:limitation_readsnum]]
+            return refchunk2reads[0], keeped_reads
+        else:
+            return refchunk2reads[0], random.sample(reads, limitation_readsnum)
     else:
         return refchunk2reads[0], reads
 

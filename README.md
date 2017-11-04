@@ -17,7 +17,7 @@ The OSs must be **Linux**.
 
     2.1 Download [smrtanalysis.tar.gz](https://1drv.ms/u/s!AgfGWBktzWTwgjc7p4vgxt15FPQE).
     
-    2.2 Copy _smrtanalysis.tar.gz_ to each worker node of your Spark cluster. Then decompress it to a desired directory.
+    2.2 Copy _smrtanalysis.tar.gz_ to **each worker node** of your Spark cluster. Then decompress it to a desired directory.
     ```sh
     # suppose you want to decompress smrtanalysis.tar.gz to /home/hadoop, 
     # using the following command: 
