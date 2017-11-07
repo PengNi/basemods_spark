@@ -23,7 +23,7 @@ The OSs must be **Linux**.
     # using the following command: 
     tar -xhzvf smrtanalysis.tar.gz -C /home/hadoop
     ```
-    **Note**:
+    **Notes**:
     
     (1). The decompressed location of smrtanalysis.tar.gz must be the same on all worker nodes. Don't forget to set the variable *SMRT\_ANALYSIS\_HOME* in parameters.conf. (Suppose you have decompressed _smrtanalysis.tar.gz_ to _/home/hadoop_ on all worker nodes, then you have to set *SMRT\_ANALYSIS\_HOME=/home/hadoop/smrtanalysis* in parameters.conf)
     
@@ -34,14 +34,18 @@ The OSs must be **Linux**.
 
     If the OSs of nodes (both master and workers) in your cluster don't have python 2.x installed, you should install it. Install  *numpy*, *h5py*, *paramiko*, *pbcore* in your python environment. Install package *py4j*, *pyspark* in your python environment if you need to.
     
-    Note that **Python 2.7.13** (or higher) is strongly recommended (not necessary) because of the bug described in [issue #5](https://github.com/PengNi/basemods_spark/issues/5). 
+    **Notes**:
+    
+    (1). one better uses _sudo_ when trying to use _pip install_ to install python third-party packages.
+    
+    (2). **Python 2.7.13** (or higher) is strongly recommended (not necessary) because of the bug described in [issue #5](https://github.com/PengNi/basemods_spark/issues/5).
 
 
 ### How to use basemods_spark
 
 1. #### make the scripts executable
 
-    If the scripts in the code of basemods_spark you download don't have execute permissions, you should make them executable.
+    If the scripts in the code of basemods_spark you downloaded don't have execute permissions, you should make them executable.
     
     ```sh
     chmod +x basemods_spark/scripts/exec_sawriter.sh
@@ -63,10 +67,11 @@ The OSs must be **Linux**.
 
 4. #### start Spark and use spark-submit to run the pipeline
 
-    (1) start HDFS if you need to
+    (1) start HDFS&YARN if you need to
 
     ```sh
     $HADOOP_HOME/sbin/start-dfs.sh
+    $HADOOP_HOME/sbin/start-yarn.sh
     ```
 
     (2) start Spark
@@ -74,7 +79,17 @@ The OSs must be **Linux**.
     $SPARK_HOME/sbin/start-all.sh
     ```
 
-    (3) submit your job
+    (3) submit your job from **master node**
+    
+    Standalone mode:
     ```sh
     $SPARK_HOME/bin/spark-submit basemods_spark_runner.py
+    ```
+    
+    Yarn mode:
+    ```sh
+    $SPARK_HOME/bin/spark-submit --master yarn \
+    --deploy-mode client \
+    --driver-memory 10g \
+    basemods_spark_runner.py
     ```

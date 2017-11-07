@@ -83,6 +83,8 @@ def getParametersFromFile(config_file):
     global SPARK_TASK_CPUS
     global SPARK_MEMORY_FRACTION
     global SPARK_MEMORY_STORAGEFRACTION
+    global SPARK_EXECUTOR_CORES
+    global SPARK_EXECUTOR_INSTANCES
 
     TEMP_OUTPUT_FOLDER = conf.get("FilePath", "TEMP_OUTPUT_FOLDER")
     SMRT_ANALYSIS_HOME = conf.get("FilePath", "SMRT_ANALYSIS_HOME")
@@ -109,6 +111,9 @@ def getParametersFromFile(config_file):
     SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
     SPARK_MEMORY_FRACTION = conf.get('SparkConfiguration', 'spark_memory_fraction')
     SPARK_MEMORY_STORAGEFRACTION = conf.get('SparkConfiguration', 'spark_memory_storageFraction')
+
+    SPARK_EXECUTOR_CORES = conf.get('SparkConfiguration', 'spark_executor_cores')
+    SPARK_EXECUTOR_INSTANCES = conf.get('SparkConfiguration', 'spark_executor_instances')
     return
 
 
@@ -1520,7 +1525,9 @@ def basemods_pipe():
     getParametersFromFile('/'.join([abs_dir, parameters_config]))
 
     # start SparkContext--------------------------------------------------------------------
+    SparkContext.setSystemProperty('spark.executor.instances', SPARK_EXECUTOR_INSTANCES)
     SparkContext.setSystemProperty('spark.executor.memory', SPARK_EXECUTOR_MEMORY)
+    SparkContext.setSystemProperty('spark.executor.cores', SPARK_EXECUTOR_CORES)
     SparkContext.setSystemProperty('spark.task.cpus', SPARK_TASK_CPUS)
     SparkContext.setSystemProperty('spark.memory.fraction', SPARK_MEMORY_FRACTION)
     SparkContext.setSystemProperty('spark.memory.storageFraction', SPARK_MEMORY_STORAGEFRACTION)

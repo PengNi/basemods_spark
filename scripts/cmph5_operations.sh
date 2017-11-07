@@ -10,7 +10,7 @@ reference_filepath=$5
 modification_gff=$6
 modification_csv=$7
 max_coverage=$8
-core_num=$9
+proc_num=$9
 methylation_type=${10}
 
 
@@ -66,9 +66,9 @@ echo -e "Task writeContigList finished on $(date)\n\n"
 
 
 # task for P_ModificationDetection.computeModifications --
-echo "Task computeModifications with nproc $core_num. Started on $(date)"
+echo "Task computeModifications with nproc $proc_num. Started on $(date)"
 # Task 1
-ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify $methylation_type --paramsPath $ipdSummaryParamsPath --numWorkers $core_num --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$modification_gff --csv $temp_output_folder/$modification_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info --maxCoverage $max_coverage $cmph5_filepath || exit $?
+ipdSummary.py -v -W $temp_output_folder/$base_mod_contig_txt --methylFraction --identify $methylation_type --paramsPath $ipdSummaryParamsPath --numWorkers $proc_num --summary_h5 $temp_output_folder/$temp_kinetics_h5 --gff $temp_output_folder/$modification_gff --csv $temp_output_folder/$modification_csv --reference $reference_filepath --refChunkInfo $ref_chunk_info --maxCoverage $max_coverage $cmph5_filepath || exit $?
 echo "Task computeModifications: Task 1 completed at $(date)"
 ## Task 2
 #gzip --no-name -c $temp_output_folder/$tmpcOnrEX_gff > $temp_output_folder/$modifications_gff_gz || exit $?
