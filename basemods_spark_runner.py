@@ -1617,10 +1617,15 @@ def basemods_pipe():
                                 key=lambda chunk: (chunk[0][0], chunk[0][1][0]))
     # unpersist aligned_reads_rdd
     aligned_reads_rdd.unpersist()
+
     max_chunknum = int(SPARK_TASK_CPUS)
     atomchunk2enlargedchunk = sc.broadcast(resplit_refchunks(atomchunk2readsnum,
                                                              max_chunknum))
-    cmph5rdd = atomchunks_rdd.map(lambda (x, y): (atomchunk2enlargedchunk.value[x], (x, y)))\
+    enlargedchunks = set()
+    for a in atomchunk2enlargedchunk.value.keys():
+        enlargedchunks.add(atomchunk2enlargedchunk.value[a])
+    cmph5rdd = atomchunks_rdd.map(lambda (x, y): (atomchunk2enlargedchunk.value[x], (x, y))) \
+        .partitionBy(len(enlargedchunks)) \
         .groupByKey().map(remove_redundant_reads)
 
     # movie info to be shared to each node
