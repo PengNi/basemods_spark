@@ -90,6 +90,6 @@ The OSs must be **Linux**.
     ```sh
     $SPARK_HOME/bin/spark-submit --master yarn \
     --deploy-mode client \
-    --driver-memory 10g \
+    --driver-memory 50g \
     basemods_spark_runner.py
     ```

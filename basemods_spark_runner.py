@@ -68,6 +68,7 @@ def getParametersFromFile(config_file):
     global PROC_NUM
     global BAXH5_FOLDS
     # global REF_CHUNKS_FACTOR
+    global READS_TRIM_STRATEGY
     global IPDMAXCOVERAGE
     global METHYLATION_TYPES
 
@@ -94,6 +95,7 @@ def getParametersFromFile(config_file):
     PROC_NUM = conf.getint("PipelineArgs", "PROC_NUM")
     BAXH5_FOLDS = conf.getint("PipelineArgs", "BAXH5_FOLDS")
     # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
+    READS_TRIM_STRATEGY = conf.get("PipelineArgs", "READS_TRIM_STRATEGY")
     IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
     METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
 
@@ -1257,7 +1259,11 @@ def adjust_ref_splitting_info(ref_splitting_info, factor=2):
 
 
 def remove_partofreads_from_repeats(refchunk2reads):
-    trim_strategy = 'mapqv'  # 'mapqv' or 'random'
+    trim_strategy = 'random'  # 'mapqv' or 'random'
+
+    strategies = ['random', 'mapqv']
+    if READS_TRIM_STRATEGY in strategies:
+        trim_strategy = READS_TRIM_STRATEGY
 
     reads = list(refchunk2reads[1])
     if len(reads) > limitation_readsnum:
@@ -1269,6 +1275,8 @@ def remove_partofreads_from_repeats(refchunk2reads):
 
             keeped_reads = [reads[a] for a in sorted_idxs[0:limitation_readsnum]]
             return refchunk2reads[0], keeped_reads
+        elif trim_strategy == 'random':
+            return refchunk2reads[0], random.sample(reads, limitation_readsnum)
         else:
             return refchunk2reads[0], random.sample(reads, limitation_readsnum)
     else:
