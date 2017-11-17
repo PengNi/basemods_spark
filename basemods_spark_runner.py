@@ -41,9 +41,10 @@ COLUMNS = 60
 PAD = 15
 
 max_numpartitions = 10000
+reads_shuffle_factor = 4
 
 # sleep seconds when get data from master node
-max_sleep_seconds = 100
+max_sleep_seconds = 10
 
 # for split reference to multi chunks
 max_chunk_length = 25000
@@ -1589,7 +1590,9 @@ def basemods_pipe():
         map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, max_sleep_seconds)). \
         flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
         flatMap(basemods_pipeline_baxh5_operations). \
-        persist(StorageLevel.MEMORY_AND_DISK_SER)
+        partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
+        persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
+        #persist(StorageLevel.MEMORY_AND_DISK)
 
     # STEP 2 cmph5->mods.gff/csv (ipdSummary.py)--------------------------------------------
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
@@ -1618,8 +1621,9 @@ def basemods_pipe():
         .flatMap(lambda x: creat_redundant_reads(x, ref_splitting_info.value))\
         .partitionBy(chunk_sum)\
         .groupByKey()\
-        .map(remove_partofreads_from_repeats)\
-        .persist(StorageLevel.MEMORY_AND_DISK)
+        .map(remove_partofreads_from_repeats) \
+        .persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
+        #.persist(StorageLevel.MEMORY_AND_DISK)
 
     atomchunk2readsnum = sorted(atomchunks_rdd.map(lambda (x, y): (x, len(y))).collect(),
                                 key=lambda chunk: (chunk[0][0], chunk[0][1][0]))
