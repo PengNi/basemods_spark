@@ -43,13 +43,17 @@ PAD = 15
 max_numpartitions = 10000
 reads_shuffle_factor = 4
 
-# sleep seconds when get data from master node
-max_sleep_seconds = 100
+# sleep seconds when get data from master node/HDFS
+MAX_SLEEP_SECONDS = 100
 
 # for split reference to multi chunks
 max_chunk_length = 25000
 max_reads_per_chunk = 5000
-limitation_readsnum = max_reads_per_chunk * 5
+limitation_readsnum = max_reads_per_chunk * 6
+
+# dir for save the results in HDFS
+HDFS_IPDINFO_DIR = '/fastipd'
+HDFS_MODS_DIR = '/mods'
 
 
 # ---------------------------------------------------------------------------
@@ -61,11 +65,13 @@ def getParametersFromFile(config_file):
 
     global TEMP_OUTPUT_FOLDER
     global SMRT_ANALYSIS_HOME
+    global DATA_SAVE_MODE
     global REFERENCE_DIR
     global REF_FILENAME
     global REF_SA_FILENAME
     global CELL_DATA_DIR
 
+    global HDFS_CMD
     global PROC_NUM
     global BAXH5_FOLDS
     # global REF_CHUNKS_FACTOR
@@ -88,11 +94,13 @@ def getParametersFromFile(config_file):
 
     TEMP_OUTPUT_FOLDER = conf.get("FilePath", "TEMP_OUTPUT_FOLDER")
     SMRT_ANALYSIS_HOME = conf.get("FilePath", "SMRT_ANALYSIS_HOME")
+    DATA_SAVE_MODE = conf.get("FilePath", "DATA_SAVE_MODE")
     REFERENCE_DIR = conf.get("FilePath", "REFERENCE_DIR")
     REF_FILENAME = conf.get("FilePath", "REF_FILENAME")
     REF_SA_FILENAME = conf.get("FilePath", "REF_SA_FILENAME")
     CELL_DATA_DIR = conf.get("FilePath", "CELL_DATA_DIR")
 
+    HDFS_CMD = conf.get("PipelineArgs", "HDFS_CMD")
     PROC_NUM = conf.getint("PipelineArgs", "PROC_NUM")
     BAXH5_FOLDS = conf.getint("PipelineArgs", "BAXH5_FOLDS")
     # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
@@ -432,7 +440,7 @@ def ssh_scp_get(ip, port, user, password, remote_file, local_file):
         return flag
 
 
-def worker_put_master(mip, mport, muser, mpassword, wfile, mfile):
+def worker_put_master(mip, mport, muser, mpassword, wfile, mfile, max_sleep_seconds=1):
     try:
         attemp_times = 100
         for i in range(0, attemp_times):
@@ -540,7 +548,7 @@ def write_ipd_of_bash5(inBasH5File, outIpdInfoFile):
         return issuccess
 
 
-def get_ipdvalue_from_baxh5(inBaxH5File, master_data_dir, max_sleep_seconds):
+def get_ipdvalue_of_baxh5_to_master(inBaxH5File, master_data_dir, max_sleep_seconds=1):
     name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
     dirpath = os.path.dirname(inBaxH5File)
     outIpdInfoFileName = name_prefix + ".fastipd"
@@ -577,8 +585,25 @@ def get_ipdvalue_from_baxh5(inBaxH5File, master_data_dir, max_sleep_seconds):
         return inBaxH5File
 
 
+def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=1):
+    name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
+    dirpath = os.path.dirname(inBaxH5File)
+    outIpdInfoFileName = name_prefix + ".fastipd"
+    outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+
+    wissuccess = write_ipd_of_bash5(inBaxH5File, outIpdInfoFile)
+    if wissuccess:
+        cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-copyFromLocal', '-f',
+                                               outIpdInfoFile,
+                                               '/'.join([hdfs_data_dir, outIpdInfoFileName])],
+                                              max_sleep_seconds)
+    else:
+        print("failed to write {}".format(outIpdInfoFile))
+    return inBaxH5File
+
+
 # get baxh5file from master node---------------------------------------
-def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds):
+def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds=1):
     master_ip = MASTERNODE_IP
     master_port = MASTERNODE_PORT
     master_user = MASTERNODE_USERNAME
@@ -608,11 +633,35 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
         # ----transmit ipd value to master node
         # FIXME: need to delete this when it is useless
         if str(GET_IPD_FROM_BASH5).lower() == 'yes':
-            get_ipdvalue_from_baxh5(local_filepath, CELL_DATA_DIR, max_sleep_seconds)
+            get_ipdvalue_of_baxh5_to_master(local_filepath, CELL_DATA_DIR, max_sleep_seconds)
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
         print('done transmitting data from master node to {}'.format(local_filepath))
+        return local_filepath
+
+
+def get_baxh5file_from_hdfs(hdfs_filepath, local_temp_dir, max_sleep_seconds=1):
+    if not os.path.isdir(local_temp_dir):
+        try:
+            os.mkdir(local_temp_dir, 0777)
+        except:
+            print('local temp directory {} exists.'.format(local_temp_dir))
+    filename = os.path.basename(hdfs_filepath)
+    local_filepath = '/'.join([local_temp_dir, filename])
+    cmd_output, cmd_errors = run_hdfs_get_cmd(hdfs_filepath, local_filepath,
+                                              max_sleep_seconds)
+    if "[Errno" in cmd_errors.strip() or "error" in cmd_errors.strip().lower():
+        raise RuntimeError("hdfs get process failed to complete! (Error)\n stdout: {} \n stderr: {}".
+                           format(cmd_output, cmd_errors))
+    else:
+        # print("\nhdfs get process logging:\n stdout:{} \n".format(cmd_output))
+        # ----transmit ipd value to HDFS
+        # FIXME: need to delete this when it is useless
+        if str(GET_IPD_FROM_BASH5).lower() == 'yes':
+            # hdfs_dir = os.path.dirname(hdfs_filepath)
+            hdfs_dir = CELL_DATA_DIR + HDFS_IPDINFO_DIR
+            get_ipdvalue_of_baxh5_to_hdfs(local_filepath, hdfs_dir)
         return local_filepath
 
 
@@ -1447,7 +1496,7 @@ def get_ip_of_node():
     return node_ip
 
 
-def writemods_of_each_chromosome(keyval, refinfo):
+def writemods_of_each_chromosome(keyval, refinfo, max_sleep_seconds=1):
     reffullname = keyval[0]
     modsinfo = list(keyval[1])
 
@@ -1465,17 +1514,32 @@ def writemods_of_each_chromosome(keyval, refinfo):
     csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
-    master_ip = MASTERNODE_IP
-    master_port = MASTERNODE_PORT
-    master_user = MASTERNODE_USERNAME
-    master_passwd = MASTERNODE_USERPASSWD
+    if DATA_SAVE_MODE == 'MASTER':
+        master_ip = MASTERNODE_IP
+        master_port = MASTERNODE_PORT
+        master_user = MASTERNODE_USERNAME
+        master_passwd = MASTERNODE_USERPASSWD
 
-    mgfffilepath = '/'.join([CELL_DATA_DIR, gfffilename])
-    worker_put_master(master_ip, master_port, master_user,
-                      master_passwd, gfffilepath, mgfffilepath)
-    mcsvfilepath = '/'.join([CELL_DATA_DIR, csvfilename])
-    worker_put_master(master_ip, master_port, master_user,
-                      master_passwd, csvfilepath, mcsvfilepath)
+        mgfffilepath = '/'.join([CELL_DATA_DIR, gfffilename])
+        mcsvfilepath = '/'.join([CELL_DATA_DIR, csvfilename])
+        worker_put_master(master_ip, master_port, master_user,
+                          master_passwd, gfffilepath, mgfffilepath,
+                          max_sleep_seconds)
+        worker_put_master(master_ip, master_port, master_user,
+                          master_passwd, csvfilepath, mcsvfilepath,
+                          max_sleep_seconds)
+    elif DATA_SAVE_MODE == 'HDFS':
+        hdfs_modsresult_dir = CELL_DATA_DIR + HDFS_MODS_DIR
+        mgfffilepath = '/'.join([hdfs_modsresult_dir, gfffilename])
+        mcsvfilepath = '/'.join([hdfs_modsresult_dir, csvfilename])
+        cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-copyFromLocal', '-f',
+                                               gfffilepath,
+                                               mgfffilepath])
+        cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-copyFromLocal', '-f',
+                                               csvfilepath,
+                                               mcsvfilepath])
+    else:
+        pass
     return mgfffilepath, mcsvfilepath
 
 
@@ -1516,6 +1580,49 @@ def rm_temp_folder(temp_folder):
         except OSError:
             print("something is wrong when deleting temp folder of {}, but don't worry.".format(get_ip_of_node()))
     return issuccess
+
+
+# run_cmd--------------------------------------------------
+# def run_cmd(args_list):
+#     print('Running system command: {0}'.format(' '.join(args_list)))
+#     proc = Popen(args_list, stdout=PIPE, stderr=PIPE)
+#     (output, errors) = proc.communicate()
+#     if proc.returncode:
+#         raise RuntimeError(
+#             'Error running command: %s. Return code: %d, Error: %s' % (
+#                 ' '.join(args_list), proc.returncode, errors))
+#     return output, errors
+
+def run_cmd(args_list):
+    proc = Popen(args_list, stdout=PIPE, stderr=PIPE)
+    proc.communicate()
+    return proc.returncode
+
+
+def run_cmd_safe(args_list, max_sleep_seconds=1):
+    print('Running system command: {0}'.format(' '.join(args_list)))
+    attemp_times = 100
+    for i in range(0, attemp_times):
+        expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
+        actual_sleep_seconds = expected_sleep_seconds \
+            if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
+        time.sleep(actual_sleep_seconds)
+        proc = Popen(args_list, stdout=PIPE, stderr=PIPE)
+        (output, errors) = proc.communicate()
+        if not proc.returncode:
+            print('Running system command: {0}, succeed!'.format(' '.join(args_list)))
+            return output, errors
+    print('Running system command: {0}, failed!'.format(' '.join(args_list)))
+    return '', 'error'
+
+
+def run_hdfs_get_cmd(hdfs_file, local_file, max_sleep_seconds=1):
+    if os.path.isfile(local_file):
+        os.remove(local_file)
+    return run_cmd_safe([HDFS_CMD, 'dfs', '-get',
+                         hdfs_file,
+                         local_file],
+                        max_sleep_seconds)
 # ------------------------------------------------------------------------------------------
 
 
@@ -1536,23 +1643,50 @@ def basemods_pipe():
     conf = SparkConf().setAppName("Spark-based Pacbio BaseMod pipeline")
     sc = SparkContext(conf=conf)
 
-    # files need to be shared to each node--------------------------------------------------
-    # ref----
-    sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
+    # create temp folder in master node-----------------------------------------------------
+    if not os.path.isdir(TEMP_OUTPUT_FOLDER):
+        try:
+            os.mkdir(TEMP_OUTPUT_FOLDER, 0777)
+        except:
+            print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
+    # files need to be shared to each node--------------------------------------------------
+    # reference----
+    ref_dir = REFERENCE_DIR
+    if DATA_SAVE_MODE == 'HDFS':
+        local_ref_file = '/'.join([TEMP_OUTPUT_FOLDER, REF_FILENAME])
+        cmd_output, cmd_errors = run_hdfs_get_cmd('/'.join([REFERENCE_DIR, REF_FILENAME]),
+                                                  local_ref_file)
+        sc.addFile(local_ref_file)
+        ref_dir = TEMP_OUTPUT_FOLDER
+    elif DATA_SAVE_MODE == 'MASTER':
+        sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
+        ref_dir = REFERENCE_DIR
+    else:
+        print('please set DATA_SAVE_MODE in parameters.conf')
+        return
+    # reference.sa----
     if REF_SA_FILENAME == 'None' or (not REF_SA_FILENAME.endswith('.sa')):
         print('exec sawriter (blasr) to generate a .sa file for your reference.')
         sa_script_path = '/'.join([abs_dir, 'scripts', shell_script_sa])
-        ref_sa_filename = exec_sawriter(sa_script_path, '/'.join([REFERENCE_DIR, REF_FILENAME]))
+        ref_sa_filename = exec_sawriter(sa_script_path, '/'.join([ref_dir, REF_FILENAME]))
         print('sawriter finished. {} is generated'.format(ref_sa_filename))
-        sc.addFile('/'.join([REFERENCE_DIR, ref_sa_filename]))
+        sc.addFile('/'.join([ref_dir, ref_sa_filename]))
         USED_REF_SA_FILENAME = ref_sa_filename
     else:
-        sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
+        if DATA_SAVE_MODE == 'HDFS':
+            local_refsa_file = '/'.join([TEMP_OUTPUT_FOLDER, REF_SA_FILENAME])
+            cmd_output, cmd_errors = run_hdfs_get_cmd('/'.join([REFERENCE_DIR, REF_SA_FILENAME]),
+                                                      local_refsa_file)
+            sc.addFile(local_refsa_file)
+        elif DATA_SAVE_MODE == 'MASTER':
+            sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
+        else:
+            pass
         USED_REF_SA_FILENAME = REF_SA_FILENAME
     # ref contigs----
-    refcontigs = getRefInfoFromFastaFiles(['/'.join([REFERENCE_DIR, REF_FILENAME]), ])
-    contig_filepaths = write_ref_contigs(REFERENCE_DIR, REF_FILENAME, refcontigs)
+    refcontigs = getRefInfoFromFastaFiles(['/'.join([ref_dir, REF_FILENAME]), ])
+    contig_filepaths = write_ref_contigs(ref_dir, REF_FILENAME, refcontigs)
     for contig_filepath in contig_filepaths:
         sc.addFile(contig_filepath)
     # del sequence
@@ -1568,11 +1702,52 @@ def basemods_pipe():
     pacbio_data_dir = CELL_DATA_DIR
     baxh5_filenames = []
     metaxml_filenames = []
-    for root, dirnames, filenames in os.walk(pacbio_data_dir):
-        for filename in fnmatch.filter(filenames, '*.bax.h5'):
-            baxh5_filenames.append(os.path.join(root, filename))
-        for filename in fnmatch.filter(filenames, '*.metadata.xml'):
-            metaxml_filenames.append(os.path.join(root, filename))
+    if DATA_SAVE_MODE == 'MASTER':
+        for root, dirnames, filenames in os.walk(pacbio_data_dir):
+            for filename in fnmatch.filter(filenames, '*.bax.h5'):
+                baxh5_filenames.append(os.path.join(root, filename))
+            for filename in fnmatch.filter(filenames, '*.metadata.xml'):
+                metaxml_filenames.append(os.path.join(root, filename))
+    elif DATA_SAVE_MODE == 'HDFS':
+        cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-ls', '-R',
+                                               pacbio_data_dir])
+        fileitems = [word[-1] for word in [words.split(' ') for words in cmd_output.split('\n')]]
+        # for baxh5_filenames and metadata.xml----
+        for fileitem in fileitems:
+            if fileitem.endswith('.bax.h5'):
+                baxh5_filenames.append(fileitem)
+            if fileitem.endswith('.metadata.xml'):
+                filename = os.path.basename(fileitem)
+                local_metadataxml_file = '/'.join([TEMP_OUTPUT_FOLDER, filename])
+                cmd_output, cmd_errors = run_hdfs_get_cmd(fileitem, local_metadataxml_file)
+                metaxml_filenames.append(local_metadataxml_file)
+
+        # create folder in HDFS for saving mods result----
+        hdfs_modsresult_dir = CELL_DATA_DIR + HDFS_MODS_DIR
+        isFileOrDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-e', hdfs_modsresult_dir])  # 0 is true, 1 is false
+        isDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-d', hdfs_modsresult_dir])  # 0 is true, 1 is false
+        if isFileOrDir == 1:
+            cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-mkdir', '-p',
+                                                   hdfs_modsresult_dir])
+        elif isDir == 1:
+            raise ValueError("'{}' in your HDFS is a file, not a directory.\n"
+                             "however, we need it to be a directory.\n"
+                             "please fix it".format(hdfs_modsresult_dir))
+
+        # create fastipd folder in HDFS if needed----
+        if str(GET_IPD_FROM_BASH5).lower() == 'yes':
+            hdfs_fastipd_dir = pacbio_data_dir + HDFS_IPDINFO_DIR
+            isFileOrDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-e', hdfs_fastipd_dir])  # 0 is true, 1 is false
+            isDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-d', hdfs_fastipd_dir])  # 0 is true, 1 is false
+            if isFileOrDir == 1:
+                cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-mkdir', '-p',
+                                                       hdfs_fastipd_dir])
+            elif isDir == 1:
+                raise ValueError("'{}' in your HDFS is a file, not a directory.\n"
+                                 "however, we need it to be a directory.\n"
+                                 "please fix it".format(hdfs_fastipd_dir))
+    else:
+        pass
 
     baxh5_folds = BAXH5_FOLDS
     local_temp_dir = TEMP_OUTPUT_FOLDER
@@ -1584,15 +1759,25 @@ def basemods_pipe():
         .repartition(re_numpartitions)\
         .coalesce(len(baxh5_filenames))
 
-    # FIXME: how to repartition without shuffle
-    # partition_basenum = len(baxh5_filenames) * baxh5_folds
-    aligned_reads_rdd = baxh5nameRDD. \
-        map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, max_sleep_seconds)). \
-        flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
-        flatMap(basemods_pipeline_baxh5_operations). \
-        partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
-        persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
-        #persist(StorageLevel.MEMORY_AND_DISK)
+    if DATA_SAVE_MODE == 'MASTER':
+        aligned_reads_rdd = baxh5nameRDD. \
+            map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, MAX_SLEEP_SECONDS)). \
+            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
+            flatMap(basemods_pipeline_baxh5_operations). \
+            partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
+            persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
+            #persist(StorageLevel.MEMORY_AND_DISK)
+    elif DATA_SAVE_MODE == 'HDFS':
+        aligned_reads_rdd = baxh5nameRDD. \
+            map(lambda x: get_baxh5file_from_hdfs(x, local_temp_dir)). \
+            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
+            flatMap(basemods_pipeline_baxh5_operations). \
+            partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
+            persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
+            #persist(StorageLevel.MEMORY_AND_DISK)
+    else:
+        aligned_reads_rdd = None
+        return
 
     # STEP 2 cmph5->mods.gff/csv (ipdSummary.py)--------------------------------------------
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
@@ -1660,9 +1845,11 @@ def basemods_pipe():
     # motif_rdd.count()
     modsinfo_rdd = modification_rdd.groupByKey()\
         .map(lambda (x, y): writemods_of_each_chromosome((x, y),
-                                                         refinfos.value))
+                                                         refinfos.value,
+                                                         MAX_SLEEP_SECONDS))
     modsinfo = modsinfo_rdd.collect()
-    print('base modifications info are saved in:')
+    print('base modifications info are saved in {}. filepaths are:'
+          .format(DATA_SAVE_MODE))
     for mi in modsinfo:
         print(mi)
 
@@ -1674,7 +1861,7 @@ def basemods_pipe():
     moviestriple.destroy()
     atomchunk2enlargedchunk.destroy()
 
-    # rm temp folder of each worker node-------------------------------------------------------
+    # rm temp folder of each worker node and master node---------------------------------------
     # can't guarantee rm every worker's temp folder
     worker_num = 40
     rdd_ele_num = worker_num * 10
@@ -1683,6 +1870,9 @@ def basemods_pipe():
         .map(rm_temp_folder)\
         .reduce(lambda x, y: x + y)
     print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
+    missuccess = rm_temp_folder(TEMP_OUTPUT_FOLDER)
+    if missuccess > 0:
+        print("temp folder of master node has been deleted.")
 
     # exit-------------------------------------------------------------------------------------
     SparkContext.stop(sc)

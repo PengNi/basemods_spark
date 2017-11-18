@@ -67,7 +67,7 @@ The OSs must be **Linux**.
 
 4. #### start Spark and use spark-submit to run the pipeline
 
-    (1) start HDFS&YARN if you need to
+    (1) start HDFS&YARN
 
     ```sh
     $HADOOP_HOME/sbin/start-dfs.sh
@@ -79,17 +79,25 @@ The OSs must be **Linux**.
     $SPARK_HOME/sbin/start-all.sh
     ```
 
-    (3) submit your job from **master node**
+    (3) submit your job
     
-    Standalone mode:
+    Standalone mode (from **master node**):
     ```sh
     $SPARK_HOME/bin/spark-submit basemods_spark_runner.py
     ```
     
-    Yarn mode:
+    Yarn client mode (from **master node**):
     ```sh
     $SPARK_HOME/bin/spark-submit --master yarn \
     --deploy-mode client \
     --driver-memory 50g \
-    basemods_spark_runner.py
+    basemods_spark_runner_yarn.py
+    ```
+    
+    Yarn cluster mode:
+    ```sh
+    $SPARK_HOME/bin/spark-submit --master yarn \
+    --deploy-mode cluster \
+    --driver-memory 50g \
+    basemods_spark_runner_yarn.py
     ```
