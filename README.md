@@ -91,7 +91,7 @@ The OSs must be **Linux**.
     $SPARK_HOME/bin/spark-submit --master yarn \
     --deploy-mode client \
     --driver-memory 50g \
-    basemods_spark_runner_yarn.py
+    basemods_spark_runner_yarn_client.py
     ```
     
     Yarn cluster mode:
@@ -99,5 +99,5 @@ The OSs must be **Linux**.
     $SPARK_HOME/bin/spark-submit --master yarn \
     --deploy-mode cluster \
     --driver-memory 50g \
-    basemods_spark_runner_yarn.py
+    basemods_spark_runner_yarn_cluster.py
     ```
