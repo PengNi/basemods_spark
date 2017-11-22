@@ -49,7 +49,7 @@ MAX_SLEEP_SECONDS = 100
 # for split reference to multi chunks
 max_chunk_length = 25000
 max_reads_per_chunk = 5000
-limitation_readsnum = max_reads_per_chunk * 6
+limitation_readsnum = max_reads_per_chunk * 5
 
 # dir for save the results in HDFS
 HDFS_IPDINFO_DIR = '/fastipd'

@@ -11,19 +11,13 @@ import os
 import fnmatch
 import numpy
 import hashlib
-import ConfigParser
-import paramiko
 import socket
 import time
 import random
 import shutil
 import xml.etree.ElementTree as ET
 
-shell_script_baxh5 = 'baxh5_operations.sh'
-shell_script_cmph5 = 'cmph5_operations.sh'
-shell_script_mods = 'mods_operations.sh'
-shell_script_sa = 'exec_sawriter.sh'
-parameters_config = 'parameters.conf'
+# parameters_config = 'parameters.conf'
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
@@ -59,9 +53,14 @@ HDFS_MODS_DIR = '/mods'
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # read configfile to get parameters------------------------------------------
-def getParametersFromFile(config_file):
-    conf = ConfigParser.ConfigParser()
-    conf.read(config_file)
+def getParametersFromFile():
+    # conf = ConfigParser.ConfigParser()
+    # conf.read(config_file)
+
+    global shell_script_baxh5
+    global shell_script_cmph5
+    global shell_script_mods
+    global shell_script_sa
 
     global TEMP_OUTPUT_FOLDER
     global SMRT_ANALYSIS_HOME
@@ -74,18 +73,12 @@ def getParametersFromFile(config_file):
     global HDFS_CMD
     global PROC_NUM
     global BAXH5_FOLDS
-    # global REF_CHUNKS_FACTOR
     global READS_TRIM_STRATEGY
     global IPDMAXCOVERAGE
     global METHYLATION_TYPES
 
     global GET_IPD_FROM_BASH5
     global GET_IPD_FROM_CMPH5
-
-    global MASTERNODE_IP
-    global MASTERNODE_PORT
-    global MASTERNODE_USERNAME
-    global MASTERNODE_USERPASSWD
 
     global SPARK_EXECUTOR_MEMORY
     global SPARK_TASK_CPUS
@@ -94,37 +87,89 @@ def getParametersFromFile(config_file):
     global SPARK_EXECUTOR_CORES
     global SPARK_EXECUTOR_INSTANCES
 
-    TEMP_OUTPUT_FOLDER = conf.get("FilePath", "TEMP_OUTPUT_FOLDER")
-    SMRT_ANALYSIS_HOME = conf.get("FilePath", "SMRT_ANALYSIS_HOME")
-    DATA_SAVE_MODE = conf.get("FilePath", "DATA_SAVE_MODE")
-    REFERENCE_DIR = conf.get("FilePath", "REFERENCE_DIR")
-    REF_FILENAME = conf.get("FilePath", "REF_FILENAME")
-    REF_SA_FILENAME = conf.get("FilePath", "REF_SA_FILENAME")
-    CELL_DATA_DIR = conf.get("FilePath", "CELL_DATA_DIR")
+    # set the file path of these four scripts---------------
+    # NOTE that these scripts must be executable. If not, use 'chmod +x'
+    shell_script_baxh5 = '/home/hadoop/workspace_py/basemods_spark/scripts/baxh5_operations.sh'
+    shell_script_cmph5 = '/home/hadoop/workspace_py/basemods_spark/scripts/cmph5_operations.sh'
+    shell_script_mods = '/home/hadoop/workspace_py/basemods_spark/scripts/mods_operations.sh'
+    shell_script_sa = '/home/hadoop/workspace_py/basemods_spark/scriptsexec_sawriter.sh'
 
-    HDFS_CMD = conf.get("PipelineArgs", "HDFS_CMD")
-    PROC_NUM = conf.getint("PipelineArgs", "PROC_NUM")
-    BAXH5_FOLDS = conf.getint("PipelineArgs", "BAXH5_FOLDS")
-    # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
-    READS_TRIM_STRATEGY = conf.get("PipelineArgs", "READS_TRIM_STRATEGY")
-    IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
-    METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
+    # [FilePath]
+    # directory for storing the temp data in the master node and each worker node
+    # Note that the dir must have enough space.
+    TEMP_OUTPUT_FOLDER = '/tmp/basemods_spark_data'
 
-    GET_IPD_FROM_BASH5 = conf.get("PipelineArgs", "GET_IPD_FROM_BASH5")
-    GET_IPD_FROM_CMPH5 = conf.get("PipelineArgs", "GET_IPD_FROM_CMPH5")
+    # the path of SMRT-Analysis in each worker node
+    # for now, we are using SMRT-Analysis V2.3.0 (smrtanalysis_2.3.0.140936)
+    SMRT_ANALYSIS_HOME = '/home/hadoop/smrtanalysis'
 
-    MASTERNODE_IP = conf.get("MasterNodeInfo", "HOST")
-    MASTERNODE_PORT = conf.getint("MasterNodeInfo", "HOSTPORT")
-    MASTERNODE_USERNAME = conf.get("MasterNodeInfo", "USERNAME")
-    MASTERNODE_USERPASSWD = conf.get("MasterNodeInfo", "USERPASSWD")
+    # choose to put the cell data into your master node or HDFS
+    # in yarn cluster mode, just use "HDFS"
+    DATA_SAVE_MODE = 'HDFS'
 
-    SPARK_EXECUTOR_MEMORY = conf.get('SparkConfiguration', 'spark_executor_memory')
-    SPARK_TASK_CPUS = conf.get('SparkConfiguration', 'spark_task_cpus')
-    SPARK_MEMORY_FRACTION = conf.get('SparkConfiguration', 'spark_memory_fraction')
-    SPARK_MEMORY_STORAGEFRACTION = conf.get('SparkConfiguration', 'spark_memory_storageFraction')
+    # the reference file directory in HDFS
+    REFERENCE_DIR = 'hdfs://127.0.0.1:9000/data/pacbio/lambda_v210'
+    REF_FILENAME = 'lambda.fasta'
 
-    SPARK_EXECUTOR_CORES = conf.get('SparkConfiguration', 'spark_executor_cores')
-    SPARK_EXECUTOR_INSTANCES = conf.get('SparkConfiguration', 'spark_executor_instances')
+    # please put .sa file in the same directory (REFERENCE_DIR) of your reference file (REF_FILENAME)
+    # if there is no .sa file, assign "None" to REF_SA_FILENAME
+    REF_SA_FILENAME = 'lambda.fasta.sa'
+
+    # the smrt cell data directory in HDFS
+    CELL_DATA_DIR = 'hdfs://127.0.0.1:9000/data/pacbio/lambda_v210'
+
+    # [PipelineArgs]
+    # the location of the 'hdfs' shell script
+    HDFS_CMD = '/usr/local/hadoop/bin/hdfs'
+
+    # the number of processors you allow SMRT-Analysis to use in each worker node
+    # It's ok to set PROC_NUM to 39 if each worker node has 40 processors.
+    PROC_NUM = 3
+
+    # the folds of each bax.h5 file you want to split to
+    BAXH5_FOLDS = 1
+
+    # strategy for trimming reads in repeats region
+    # "random" or "mapqv"
+    READS_TRIM_STRATEGY = 'random'
+
+    # maxCoverage in ipdSummary.py
+    IPDMAXCOVERAGE = 250
+
+    # methylation types to be identified, for now there are three kinds: "m6A,m5C,m4C"
+    # Use ',' as delimiter. No space allowed.
+    METHYLATION_TYPES = 'm6A, m4C'
+
+    # whether to write IPD value to file or not
+    # "YES" or "NO"
+    GET_IPD_FROM_BASH5 = 'YES'
+    GET_IPD_FROM_CMPH5 = 'NO'
+
+    # should be no greater than the memory of a worker node
+    SPARK_EXECUTOR_MEMORY = '4g'
+
+    # Number of cores (identical to virtual cores/cpu processors) to allocate for each task.
+    # 2, 4 or 5?
+    SPARK_TASK_CPUS = '1'
+
+    # default value in Spark Configuration is 0.6
+    SPARK_MEMORY_FRACTION = '0.6'
+
+    # default value in Spark Configuration is 0.5
+    SPARK_MEMORY_STORAGEFRACTION = '0.5'
+
+    # only for Spark on YARN mode------------------------------------
+    # for now, this parameter should be equal to the number of worker nodes
+    # e.g. Suppose you have 5 worker nodes, set the number of executor instances to 5.
+    SPARK_EXECUTOR_INSTANCES = '1'
+
+    # this parameter should better be equal to (the number of cpu cores each worker node has - 1).
+    # e.g. Suppose you have 64 cores (identical to virtual cores/cpu processors) in each worker node,
+    # set the number of executor cores to 63.
+    # OR, set it to the number of "yarn.nodemanager.resource.cpu-vcores"/"yarn.scheduler.maximum-allocation-vcores"
+    # in $HADOOP_HOME/etc/hadoop/yarn-site.xml.
+    SPARK_EXECUTOR_CORES = '4'
+    # ---------------------------------------------------------------
     return
 
 
@@ -384,87 +429,6 @@ def get_movieName(baxh5file):
                         .format(m=movieNameString,
                                 t=type(movieNameString)))
     return movieNameString
-
-
-# scp.py---------------------------------------------------
-def ssh_scp_put(ip, port, user, password, local_file, remote_file):
-    """
-
-    :param ip:
-    :param port: int
-    :param user:
-    :param password:
-    :param local_file:
-    :param remote_file:
-    :return:
-    """
-    flag = 0
-    try:
-        paramiko.util.log_to_file('paramiko.log')
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(ip, port, user, password)
-        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-        sftp = ssh.open_sftp()
-        sftp.put(local_file, remote_file)
-        flag = 1
-        sftp.close()
-        ssh.close()
-    except OSError:
-        print("wrong put connection {} {} {} {} {}".format(ip, port, user, local_file, remote_file))
-    finally:
-        return flag
-
-
-def ssh_scp_get(ip, port, user, password, remote_file, local_file):
-    """
-
-    :param ip:
-    :param port: int
-    :param user:
-    :param password:
-    :param remote_file:
-    :param local_file:
-    :return:
-    """
-    flag = 0
-    try:
-        paramiko.util.log_to_file('paramiko.log')
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(ip, port, user, password)
-        sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
-        sftp = ssh.open_sftp()
-        sftp.get(remote_file, local_file)
-        flag = 1
-        sftp.close()
-        ssh.close()
-    except OSError:
-        print("wrong get connection {} {} {} {} {}".format(ip, port, user, remote_file, local_file))
-    finally:
-        return flag
-
-
-def worker_put_master(mip, mport, muser, mpassword, wfile, mfile, max_sleep_seconds=1):
-    try:
-        attemp_times = 100
-        for i in range(0, attemp_times):
-            expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
-            actual_sleep_seconds = expected_sleep_seconds \
-                if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
-            time.sleep(actual_sleep_seconds)
-            issuccess = ssh_scp_put(mip, mport, muser, mpassword,
-                                    wfile, mfile)
-            if issuccess > 0:
-                print("{} {} success".format(mip, mfile))
-                # todo write a success flag file
-                break
-    except Exception:
-        print('wrong connection remote_filepath: {}'.format(mfile))
-    finally:
-        print('done transmitting data from local node to {}'.format(mfile))
-        return mfile
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 
@@ -553,43 +517,6 @@ def write_ipd_of_bash5(inBasH5File, outIpdInfoFile):
         return issuccess
 
 
-def get_ipdvalue_of_baxh5_to_master(inBaxH5File, master_data_dir, max_sleep_seconds=1):
-    name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
-    dirpath = os.path.dirname(inBaxH5File)
-    outIpdInfoFileName = name_prefix + ".fastipd"
-    outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
-
-    wissuccess = write_ipd_of_bash5(inBaxH5File, outIpdInfoFile)
-    if wissuccess:
-        master_ip = MASTERNODE_IP
-        master_port = MASTERNODE_PORT
-        master_user = MASTERNODE_USERNAME
-        master_passwd = MASTERNODE_USERPASSWD
-
-        remote_filepath = '/'.join([master_data_dir, outIpdInfoFileName])
-        try:
-            attemp_times = 100
-            for i in range(0, attemp_times):
-                expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
-                actual_sleep_seconds = expected_sleep_seconds \
-                    if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
-                time.sleep(actual_sleep_seconds)
-                issuccess = ssh_scp_put(master_ip, master_port, master_user, master_passwd,
-                                        outIpdInfoFile, remote_filepath)
-                if issuccess > 0:
-                    print("{} {} success".format(master_ip, remote_filepath))
-                    # todo write a success flag file
-                    break
-        except Exception:
-            print('wrong connection remote_filepath: {}'.format(remote_filepath))
-        finally:
-            print('done transmitting data from local node to {}'.format(remote_filepath))
-            return inBaxH5File
-    else:
-        print("failed to write {}".format(outIpdInfoFile))
-        return inBaxH5File
-
-
 def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=1):
     name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
     dirpath = os.path.dirname(inBaxH5File)
@@ -605,45 +532,6 @@ def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=
     else:
         print("failed to write {}".format(outIpdInfoFile))
     return inBaxH5File
-
-
-# get baxh5file from master node---------------------------------------
-def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds=1):
-    master_ip = MASTERNODE_IP
-    master_port = MASTERNODE_PORT
-    master_user = MASTERNODE_USERNAME
-    master_passwd = MASTERNODE_USERPASSWD
-
-    if not os.path.isdir(local_temp_dir):
-        try:
-            os.mkdir(local_temp_dir, 0777)
-        except:
-            print('local temp directory {} exists.'.format(local_temp_dir))
-
-    filename = os.path.basename(remote_filepath)
-    local_filepath = '/'.join([local_temp_dir, filename])
-    try:
-        attemp_times = 100
-        for i in range(0, attemp_times):
-            expected_sleep_seconds = random.randint(0, max_sleep_seconds) * (i + 1)
-            actual_sleep_seconds = expected_sleep_seconds \
-                if expected_sleep_seconds < max_sleep_seconds else max_sleep_seconds
-            time.sleep(actual_sleep_seconds)
-            issuccess = ssh_scp_get(master_ip, master_port, master_user, master_passwd,
-                                    remote_filepath, local_filepath)
-            if issuccess > 0:
-                print("{} {} success".format(master_ip, remote_filepath))
-                # todo write a success flag file
-                break
-        # ----transmit ipd value to master node
-        # FIXME: need to delete this when it is useless
-        if str(GET_IPD_FROM_BASH5).lower() == 'yes':
-            get_ipdvalue_of_baxh5_to_master(local_filepath, CELL_DATA_DIR, max_sleep_seconds)
-    except Exception:
-        print('wrong connection local_filepath: {}'.format(local_filepath))
-    finally:
-        print('done transmitting data from master node to {}'.format(local_filepath))
-        return local_filepath
 
 
 def get_baxh5file_from_hdfs(hdfs_filepath, local_temp_dir, max_sleep_seconds=1):
@@ -830,7 +718,7 @@ def basemods_pipeline_baxh5_operations(keyval):
     baxh5file = name_prefix + ".bax.h5"
     reference_path = SparkFiles.get(REF_FILENAME)
     referencesa_path = SparkFiles.get(USED_REF_SA_FILENAME)
-    baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
+    baxh5_shell_file_path = shell_script_baxh5
 
     cmph5file = name_prefix + ".aligned_reads.cmp.h5"
 
@@ -1068,7 +956,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
         contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
         reference_path = SparkFiles.get(contig_filename)
 
-        cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
+        cmph5_shell_file_path = shell_script_cmph5
         cmph5_filename = name_prefix + ".cmp.h5"
         cmph5path = '/'.join([TEMP_OUTPUT_FOLDER, cmph5_filename])
 
@@ -1426,7 +1314,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     # reference_path = SparkFiles.get(REF_FILENAME)
     contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
     reference_path = SparkFiles.get(contig_filename)
-    mods_shell_file_path = SparkFiles.get(shell_script_mods)
+    mods_shell_file_path = shell_script_mods
     name_prefix = reffullname.replace(' ', SPACE_ALTER)
     gfffilename = name_prefix + ".modifications.gff"
     csvfilename = name_prefix + ".modifications.csv"
@@ -1520,19 +1408,7 @@ def writemods_of_each_chromosome(keyval, refinfo, max_sleep_seconds=1):
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
     if DATA_SAVE_MODE == 'MASTER':
-        master_ip = MASTERNODE_IP
-        master_port = MASTERNODE_PORT
-        master_user = MASTERNODE_USERNAME
-        master_passwd = MASTERNODE_USERPASSWD
-
-        mgfffilepath = '/'.join([CELL_DATA_DIR, gfffilename])
-        mcsvfilepath = '/'.join([CELL_DATA_DIR, csvfilename])
-        worker_put_master(master_ip, master_port, master_user,
-                          master_passwd, gfffilepath, mgfffilepath,
-                          max_sleep_seconds)
-        worker_put_master(master_ip, master_port, master_user,
-                          master_passwd, csvfilepath, mcsvfilepath,
-                          max_sleep_seconds)
+        pass
     elif DATA_SAVE_MODE == 'HDFS':
         hdfs_modsresult_dir = CELL_DATA_DIR + HDFS_MODS_DIR
         mgfffilepath = '/'.join([hdfs_modsresult_dir, gfffilename])
@@ -1637,8 +1513,7 @@ def basemods_pipe():
     # get global variables------------------------------------------------------------------
     # for reference .sa file name
     global USED_REF_SA_FILENAME
-    abs_dir = os.path.dirname(os.path.realpath(__file__))
-    getParametersFromFile('/'.join([abs_dir, parameters_config]))
+    getParametersFromFile()
 
     # start SparkContext--------------------------------------------------------------------
     SparkContext.setSystemProperty('spark.executor.instances', SPARK_EXECUTOR_INSTANCES)
@@ -1675,7 +1550,7 @@ def basemods_pipe():
     # reference.sa----
     if REF_SA_FILENAME == 'None' or (not REF_SA_FILENAME.endswith('.sa')):
         print('exec sawriter (blasr) to generate a .sa file for your reference.')
-        sa_script_path = '/'.join([abs_dir, 'scripts', shell_script_sa])
+        sa_script_path = shell_script_sa
         ref_sa_filename = exec_sawriter(sa_script_path, '/'.join([ref_dir, REF_FILENAME]))
         print('sawriter finished. {} is generated'.format(ref_sa_filename))
         sc.addFile('/'.join([ref_dir, ref_sa_filename]))
@@ -1699,10 +1574,10 @@ def basemods_pipe():
     # del sequence
     for contig in refcontigs.keys():
         refcontigs[contig][SEQUENCE] = ''
-    # scipts----
-    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
-    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
-    sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
+    # # scipts----
+    # sc.addFile('/'.join([abs_dir, 'scripts', shell_script_baxh5]))
+    # sc.addFile('/'.join([abs_dir, 'scripts', shell_script_cmph5]))
+    # sc.addFile('/'.join([abs_dir, 'scripts', shell_script_mods]))
 
     # STEP 1 baxh5->cmph5 (filter, blasr)---------------------------------------------------
     # get all files in cell_data_directory
@@ -1767,13 +1642,8 @@ def basemods_pipe():
         .coalesce(len(baxh5_filenames))
 
     if DATA_SAVE_MODE == 'MASTER':
-        aligned_reads_rdd = baxh5nameRDD. \
-            map(lambda x: get_baxh5file_from_masternode(x, local_temp_dir, MAX_SLEEP_SECONDS)). \
-            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
-            flatMap(basemods_pipeline_baxh5_operations). \
-            partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
-            persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
-            #persist(StorageLevel.MEMORY_AND_DISK)
+        aligned_reads_rdd = None
+        return
     elif DATA_SAVE_MODE == 'HDFS':
         aligned_reads_rdd = baxh5nameRDD. \
             map(lambda x: get_baxh5file_from_hdfs(x, local_temp_dir)). \
