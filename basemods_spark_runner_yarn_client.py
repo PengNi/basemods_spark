@@ -41,7 +41,7 @@ COLUMNS = 60
 PAD = 15
 
 max_numpartitions = 10000
-reads_shuffle_factor = 4
+reads_shuffle_factor = 3
 
 # sleep seconds when get data from master node/HDFS
 MAX_SLEEP_SECONDS = 100
@@ -1258,11 +1258,15 @@ def writecmph5(filepath, reads_info, reffullname, refinfo, moviechemistry):
     f.close()
 
 
-def creat_redundant_reads(read_keyval, ref_splitting_info):
+def create_redundant_reads(read_keyval, ref_splitting_info,
+                           danger_atomchunks, atomchunk2enlargedchunk):
     """
-    check if a read needs to be copyed for two ref chunks
+    check if a read needs to be copyed for two ref chunks,
+    reads->atomchunks->enlargedchunks
     :param read_keyval:
     :param ref_splitting_info:
+    :param danger_atomchunks: dict: {atomchunk1: ratio*100, ...}
+    :param atomchunk2enlargedchunk:
     :return: [(key, val), ]
     key: (reffullname, (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
     val: the same as value in read_keyval
@@ -1274,12 +1278,47 @@ def creat_redundant_reads(read_keyval, ref_splitting_info):
     read_ref_splitting_info = ref_splitting_info[read_refid]
 
     res_keyval = []
+    enlarged_chunks = set()
     for ref_range in read_ref_splitting_info:
         refstart, refend = ref_range[0], ref_range[1]
         # refstart, refend = refstart - PAD, refend + PAD
         if not (target_end <= refstart or target_start >= refend):
-            res_keyval.append(((read_refid, ref_range), read_keyval))
+            ref_chunk = (read_refid, ref_range)
+            if ref_chunk in danger_atomchunks.keys():
+                if keepornot(danger_atomchunks[ref_chunk]):
+                    enlarged_chunks.add(atomchunk2enlargedchunk[ref_chunk])
+            else:
+                enlarged_chunks.add(atomchunk2enlargedchunk[ref_chunk])
+    for echunk in enlarged_chunks:
+        res_keyval.append((echunk, read_keyval))
     return res_keyval
+
+
+def keepornot(keep_ratio):
+    randomNum = random.randint(1, 100)
+    return 0 if randomNum > keep_ratio else 1
+
+
+def get_atomchunks(read_key, ref_splitting_info):
+    """
+    check if a read needs to be copyed for two ref chunks
+    :param read_key:
+    :param ref_splitting_info:
+    :return:
+    """
+    # FIXED: classify the reads by covering ref_splitting_range (start, end)
+    # FIXED: or (start-pad, end+pad)?. For now, use (start, end)
+    # FIXED: answer: use (start, end) is enough
+    (read_refid, target_start, target_end) = read_key
+    read_ref_splitting_info = ref_splitting_info[read_refid]
+
+    chunksOfThisRead = []
+    for ref_range in read_ref_splitting_info:
+        refstart, refend = ref_range[0], ref_range[1]
+        # refstart, refend = refstart - PAD, refend + PAD
+        if not (target_end <= refstart or target_start >= refend):
+            chunksOfThisRead.append((read_refid, ref_range))
+    return chunksOfThisRead
 
 
 def adjust_ref_splitting_info(ref_splitting_info, factor=2):
@@ -1313,29 +1352,29 @@ def adjust_ref_splitting_info(ref_splitting_info, factor=2):
     return ref_splitting_info
 
 
-def remove_partofreads_from_repeats(refchunk2reads):
-    trim_strategy = 'random'  # 'mapqv' or 'random'
-
-    strategies = ['random', 'mapqv']
-    if READS_TRIM_STRATEGY in strategies:
-        trim_strategy = READS_TRIM_STRATEGY
-
-    reads = list(refchunk2reads[1])
-    if len(reads) > limitation_readsnum:
-        if trim_strategy == 'mapqv':
-            ALN_INDEX = 'AlnInfo/AlnIndex'
-            MAPQV = 13
-            mapqvs = [read[1][ALN_INDEX][MAPQV] for read in reads]
-            sorted_idxs = [a[0] for a in sorted(enumerate(mapqvs), key=lambda x: x[1], reverse=True)]
-
-            keeped_reads = [reads[a] for a in sorted_idxs[0:limitation_readsnum]]
-            return refchunk2reads[0], keeped_reads
-        elif trim_strategy == 'random':
-            return refchunk2reads[0], random.sample(reads, limitation_readsnum)
-        else:
-            return refchunk2reads[0], random.sample(reads, limitation_readsnum)
-    else:
-        return refchunk2reads[0], reads
+# def remove_partofreads_from_repeats(refchunk2reads):
+#     trim_strategy = 'random'  # 'mapqv' or 'random'
+#
+#     strategies = ['random', 'mapqv']
+#     if READS_TRIM_STRATEGY in strategies:
+#         trim_strategy = READS_TRIM_STRATEGY
+#
+#     reads = list(refchunk2reads[1])
+#     if len(reads) > limitation_readsnum:
+#         if trim_strategy == 'mapqv':
+#             ALN_INDEX = 'AlnInfo/AlnIndex'
+#             MAPQV = 13
+#             mapqvs = [read[1][ALN_INDEX][MAPQV] for read in reads]
+#             sorted_idxs = [a[0] for a in sorted(enumerate(mapqvs), key=lambda x: x[1], reverse=True)]
+#
+#             keeped_reads = [reads[a] for a in sorted_idxs[0:limitation_readsnum]]
+#             return refchunk2reads[0], keeped_reads
+#         elif trim_strategy == 'random':
+#             return refchunk2reads[0], random.sample(reads, limitation_readsnum)
+#         else:
+#             return refchunk2reads[0], random.sample(reads, limitation_readsnum)
+#     else:
+#         return refchunk2reads[0], reads
 
 
 # FIXME: need to re-code this function, make it more pythonic
@@ -1392,23 +1431,23 @@ def resplit_refchunks(atomchunk2readsnum, max_chunknum):
     return atomchunk2enlargedchunk
 
 
-def remove_redundant_reads(enlargedchunk2readsinfo):
-    """
-
-    :param enlargedchunk2readsinfo: (enchunkinfo, [(chunkinfo, [read, read,]), ()])
-    :return: (enchunkinfo, [read, read,...])
-    """
-    chunkinfo = enlargedchunk2readsinfo[0]
-    readsgroup = sorted(list(enlargedchunk2readsinfo[1]), key=lambda x: x[0][1][0])
-    totalreads = []
-    totalreads.extend(readsgroup[0][1])
-    for i in range(1, len(readsgroup)):
-        (rstart, rend, rfold) = readsgroup[i][0][1]
-        for read in readsgroup[i][1]:
-            if read[0][1] >= rstart:
-                totalreads.append(read)
-    del readsgroup
-    return chunkinfo, totalreads
+# def remove_redundant_reads(enlargedchunk2readsinfo):
+#     """
+#
+#     :param enlargedchunk2readsinfo: (enchunkinfo, [(chunkinfo, [read, read,]), ()])
+#     :return: (enchunkinfo, [read, read,...])
+#     """
+#     chunkinfo = enlargedchunk2readsinfo[0]
+#     readsgroup = sorted(list(enlargedchunk2readsinfo[1]), key=lambda x: x[0][1][0])
+#     totalreads = []
+#     totalreads.extend(readsgroup[0][1])
+#     for i in range(1, len(readsgroup)):
+#         (rstart, rend, rfold) = readsgroup[i][0][1]
+#         for read in readsgroup[i][1]:
+#             if read[0][1] >= rstart:
+#                 totalreads.append(read)
+#     del readsgroup
+#     return chunkinfo, totalreads
 
 
 # operations for each rdd element in modificationRDD-----------------------
@@ -1788,6 +1827,7 @@ def basemods_pipe():
 
     # STEP 2 cmph5->mods.gff/csv (ipdSummary.py)--------------------------------------------
     # x[0] is ref_contig's fullname, check split_reads_in_cmph5()
+    # type(ref_identifiers_count):dict
     ref_identifiers_count = aligned_reads_rdd.map(lambda (x, y): x[0]).countByValue()
 
     # reference info to be shared to each node
@@ -1805,22 +1845,18 @@ def basemods_pipe():
     # ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
     ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, 1))
 
-    chunk_sum = 0
-    for refid in ref_splitting_info.value.keys():
-        chunk_sum += len(ref_splitting_info.value[refid])
-
-    atomchunks_rdd = aligned_reads_rdd\
-        .flatMap(lambda x: creat_redundant_reads(x, ref_splitting_info.value))\
-        .partitionBy(chunk_sum)\
-        .groupByKey()\
-        .map(remove_partofreads_from_repeats) \
-        .persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
-        #.persist(StorageLevel.MEMORY_AND_DISK)
-
-    atomchunk2readsnum = sorted(atomchunks_rdd.map(lambda (x, y): (x, len(y))).collect(),
-                                key=lambda chunk: (chunk[0][0], chunk[0][1][0]))
-    # unpersist aligned_reads_rdd
-    aligned_reads_rdd.unpersist()
+    atomchunk2readsnum = sorted(aligned_reads_rdd
+                                .flatMap(lambda x: get_atomchunks(x[0], ref_splitting_info.value))
+                                .countByValue()
+                                .items(),
+                                key=lambda achunk: (achunk[0][0], achunk[0][1][0]))
+    danger_atomchunks = dict(list(filter(lambda x: x[1] > limitation_readsnum,
+                                         atomchunk2readsnum)))
+    for chunk in danger_atomchunks.keys():
+        danger_atomchunks[chunk] = float(limitation_readsnum) / danger_atomchunks[chunk] * 100
+    print('danger_atomchunks\nnum: {}'.format(len(danger_atomchunks)))
+    print(danger_atomchunks)
+    danger_atomchunks = sc.broadcast(danger_atomchunks)
 
     max_chunknum = int(SPARK_TASK_CPUS)
     atomchunk2enlargedchunk = sc.broadcast(resplit_refchunks(atomchunk2readsnum,
@@ -1828,9 +1864,13 @@ def basemods_pipe():
     enlargedchunks = set()
     for a in atomchunk2enlargedchunk.value.keys():
         enlargedchunks.add(atomchunk2enlargedchunk.value[a])
-    cmph5rdd = atomchunks_rdd.map(lambda (x, y): (atomchunk2enlargedchunk.value[x], (x, y))) \
-        .partitionBy(len(enlargedchunks)) \
-        .groupByKey().map(remove_redundant_reads)
+
+    cmph5rdd = aligned_reads_rdd\
+        .flatMap(lambda x: create_redundant_reads(x, ref_splitting_info.value,
+                                                  danger_atomchunks.value,
+                                                  atomchunk2enlargedchunk.value))\
+        .partitionBy(len(enlargedchunks))\
+        .groupByKey()
 
     # movie info to be shared to each node
     moviestriple = sc.broadcast(
@@ -1861,10 +1901,11 @@ def basemods_pipe():
         print(mi)
 
     # clear persisted rdd and broadcast variables----------------------------------------------
-    # aligned_reads_rdd.unpersist()
-    atomchunks_rdd.unpersist()
+    aligned_reads_rdd.unpersist()
+    # atomchunks_rdd.unpersist()
     refinfos.destroy()
     ref_splitting_info.destroy()
+    danger_atomchunks.destroy()
     moviestriple.destroy()
     atomchunk2enlargedchunk.destroy()
 
