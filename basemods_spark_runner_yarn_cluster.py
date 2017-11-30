@@ -89,10 +89,11 @@ def getParametersFromFile():
 
     # set the file path of these four scripts---------------
     # NOTE that these scripts must be executable. If not, use 'chmod +x'
-    shell_script_baxh5 = '/home/hadoop/workspace_py/basemods_spark/scripts/baxh5_operations.sh'
-    shell_script_cmph5 = '/home/hadoop/workspace_py/basemods_spark/scripts/cmph5_operations.sh'
-    shell_script_mods = '/home/hadoop/workspace_py/basemods_spark/scripts/mods_operations.sh'
-    shell_script_sa = '/home/hadoop/workspace_py/basemods_spark/scriptsexec_sawriter.sh'
+    SCRIPTS_FOLDER = '/home/hadoop/workspace_py/basemods_spark/scripts'
+    shell_script_baxh5 = SCRIPTS_FOLDER + '/baxh5_operations.sh'
+    shell_script_cmph5 = SCRIPTS_FOLDER + '/cmph5_operations.sh'
+    shell_script_mods = SCRIPTS_FOLDER + '/mods_operations.sh'
+    shell_script_sa = SCRIPTS_FOLDER + '/exec_sawriter.sh'
 
     # [FilePath]
     # directory for storing the temp data in the master node and each worker node
@@ -461,10 +462,17 @@ def exec_sawriter(sa_script_path, ref_fasta_filepath):
         return os.path.basename(ref_fasta_filepath) + ".sa"
 
 
+def rename(oriname):
+    return oriname.replace(' ', SPACE_ALTER)\
+        .replace('/', SPACE_ALTER)\
+        .replace(':', SPACE_ALTER)\
+        .replace(';', SPACE_ALTER)
+
+
 # name ref contig file
 def name_reference_contig_file(ref_name, contigname):
     ref_prefix, ref_ext = os.path.splitext(ref_name)
-    contigname = contigname.replace(' ', SPACE_ALTER)
+    contigname = rename(contigname)
     return ref_prefix + '.' + contigname + ref_ext
 
 
@@ -944,7 +952,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     """
     (reffullname, (ref_start, ref_end, ref_folds)) = keyval[0]
     reads_info = [read_keyval[1] for read_keyval in list(keyval[1])]
-    name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
+    name_prefix = rename(reffullname) + '.' + str(ref_start) + '-' + str(ref_end)
 
     if len(reads_info) > 0:
         if not os.path.isdir(TEMP_OUTPUT_FOLDER):
@@ -1355,7 +1363,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
     reference_path = SparkFiles.get(contig_filename)
     mods_shell_file_path = shell_script_mods
-    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    name_prefix = rename(reffullname)
     gfffilename = name_prefix + ".modifications.gff"
     csvfilename = name_prefix + ".modifications.csv"
     motifs_gff_gz_filename = name_prefix + ".motifs.gff.gz"

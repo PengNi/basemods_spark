@@ -496,10 +496,17 @@ def exec_sawriter(sa_script_path, ref_fasta_filepath):
         return os.path.basename(ref_fasta_filepath) + ".sa"
 
 
+def rename(oriname):
+    return oriname.replace(' ', SPACE_ALTER)\
+        .replace('/', SPACE_ALTER)\
+        .replace(':', SPACE_ALTER)\
+        .replace(';', SPACE_ALTER)
+
+
 # name ref contig file
 def name_reference_contig_file(ref_name, contigname):
     ref_prefix, ref_ext = os.path.splitext(ref_name)
-    contigname = contigname.replace(' ', SPACE_ALTER)
+    contigname = rename(contigname)
     return ref_prefix + '.' + contigname + ref_ext
 
 
@@ -1055,7 +1062,7 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     """
     (reffullname, (ref_start, ref_end, ref_folds)) = keyval[0]
     reads_info = [read_keyval[1] for read_keyval in list(keyval[1])]
-    name_prefix = reffullname.replace(' ', SPACE_ALTER) + '.' + str(ref_start) + '-' + str(ref_end)
+    name_prefix = rename(reffullname) + '.' + str(ref_start) + '-' + str(ref_end)
 
     if len(reads_info) > 0:
         if not os.path.isdir(TEMP_OUTPUT_FOLDER):
@@ -1466,7 +1473,7 @@ def basemods_pipeline_modification_operations(keyval, refinfo):
     contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
     reference_path = SparkFiles.get(contig_filename)
     mods_shell_file_path = SparkFiles.get(shell_script_mods)
-    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    name_prefix = rename(reffullname)
     gfffilename = name_prefix + ".modifications.gff"
     csvfilename = name_prefix + ".modifications.csv"
     motifs_gff_gz_filename = name_prefix + ".motifs.gff.gz"
