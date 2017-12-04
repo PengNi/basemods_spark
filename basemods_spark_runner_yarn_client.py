@@ -590,6 +590,7 @@ def get_ipdvalue_of_baxh5_to_master(inBaxH5File, master_data_dir, max_sleep_seco
         except Exception:
             print('wrong connection remote_filepath: {}'.format(remote_filepath))
         finally:
+            os.remove(outIpdInfoFile)  # rm temp ipdinfo file
             print('done transmitting data from local node to {}'.format(remote_filepath))
             return inBaxH5File
     else:
@@ -609,6 +610,7 @@ def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=
                                                outIpdInfoFile,
                                                '/'.join([hdfs_data_dir, outIpdInfoFileName])],
                                               max_sleep_seconds)
+        os.remove(outIpdInfoFile)  # rm temp ipdinfo file
     else:
         print("failed to write {}".format(outIpdInfoFile))
     return inBaxH5File
@@ -833,13 +835,9 @@ def basemods_pipeline_baxh5_operations(keyval):
     """
     fileinfo, filecontent = keyval
 
-    name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', SPACE_ALTER)
-    baxh5file = name_prefix + ".bax.h5"
     reference_path = SparkFiles.get(REF_FILENAME)
     referencesa_path = SparkFiles.get(USED_REF_SA_FILENAME)
     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
-
-    cmph5file = name_prefix + ".aligned_reads.cmp.h5"
 
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
         try:
@@ -847,9 +845,16 @@ def basemods_pipeline_baxh5_operations(keyval):
         except:
             print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
-    baxh5_dir = TEMP_OUTPUT_FOLDER
-    baxh5path = baxh5_dir + '/' + baxh5file
-    writebaxh5(filecontent, baxh5path)
+    if BAXH5_FOLDS == 1:
+        baxh5path = filecontent[0]
+        name_prefix = os.path.basename(baxh5path).split('.bax.h5')[0]
+    else:
+        name_prefix = (fileinfo[0] + "." + str(fileinfo[1][0]) + "-" + str(fileinfo[1][1])).replace(' ', SPACE_ALTER)
+        baxh5file = name_prefix + ".bax.h5"
+        baxh5_dir = TEMP_OUTPUT_FOLDER
+        baxh5path = baxh5_dir + '/' + baxh5file
+        writebaxh5(filecontent, baxh5path)
+    cmph5file = name_prefix + ".aligned_reads.cmp.h5"
 
     # baxh5 operations (filter, align(blasr, filter, samtoh5), loadchemistry, loadpulse)
     baxh5_operations = "{baxh5_operations_sh} {seymour_home} {temp_output_folder} {baxh5_filepath}" \
@@ -875,7 +880,12 @@ def basemods_pipeline_baxh5_operations(keyval):
     else:
         print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
         cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
-        return split_reads_in_cmph5(cmph5_filepath)
+        aligned_reads = split_reads_in_cmph5(cmph5_filepath)
+        # rm temp files --------
+        os.remove(baxh5path)
+        remove_files_in_a_folder(TEMP_OUTPUT_FOLDER, name_prefix)
+        # ----------------------
+        return aligned_reads
 
 
 def writebaxh5(filecontent, filepath):
@@ -1129,7 +1139,9 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
             with open(csv_filepath) as rf:
                 next(rf)
                 csvContent += "\n".join(line.strip() for line in rf) + '\n'
-
+            # rm temp files --------
+            remove_files_in_a_folder(TEMP_OUTPUT_FOLDER, name_prefix)
+            # ----------------------
             return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, })
     else:
         raise ValueError("no reads to form a cmph5 file")
@@ -1674,6 +1686,13 @@ def run_hdfs_get_cmd(hdfs_file, local_file, max_sleep_seconds=1):
                          hdfs_file,
                          local_file],
                         max_sleep_seconds)
+
+
+# rm files with specific prefix-pattern in a folder ----------
+def remove_files_in_a_folder(file_directory, file_regex):
+    for f in os.listdir(file_directory):
+        if f.startswith(file_regex):
+            os.remove('/'.join([file_directory, f]))
 # ------------------------------------------------------------------------------------------
 
 
