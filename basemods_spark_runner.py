@@ -1564,7 +1564,7 @@ def writemods_of_each_chromosome(keyval, refinfo, max_sleep_seconds=1):
         except:
             print('temp directory {} exists.'.format(TEMP_OUTPUT_FOLDER))
 
-    name_prefix = reffullname.replace(' ', SPACE_ALTER)
+    name_prefix = rename(reffullname)
     gfffilename = name_prefix + ".modifications.gff"
     csvfilename = name_prefix + ".modifications.csv"
 
