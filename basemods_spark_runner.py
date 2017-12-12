@@ -106,7 +106,8 @@ def getParametersFromFile(config_file):
     # REF_CHUNKS_FACTOR = conf.getint("PipelineArgs", "REF_CHUNKS_FACTOR")
     READS_TRIM_STRATEGY = conf.get("PipelineArgs", "READS_TRIM_STRATEGY")
     IPDMAXCOVERAGE = conf.get("PipelineArgs", 'IPDMAXCOVERAGE')
-    METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
+    # METHYLATION_TYPES = conf.get("PipelineArgs", "METHYLATION_TYPES")
+    METHYLATION_TYPES = trim_spaces(conf.get("PipelineArgs", "METHYLATION_TYPES"))
 
     GET_IPD_FROM_BASH5 = conf.get("PipelineArgs", "GET_IPD_FROM_BASH5")
     GET_IPD_FROM_CMPH5 = conf.get("PipelineArgs", "GET_IPD_FROM_CMPH5")
@@ -121,6 +122,11 @@ def getParametersFromFile(config_file):
     SPARK_MEMORY_FRACTION = conf.get('SparkConfiguration', 'spark_memory_fraction')
     SPARK_MEMORY_STORAGEFRACTION = conf.get('SparkConfiguration', 'spark_memory_storageFraction')
     return
+
+
+# for trim spaces
+def trim_spaces(ori_str):
+    return str(ori_str).strip().replace(", ", ",")
 
 
 # fasta_info.py-------------------------

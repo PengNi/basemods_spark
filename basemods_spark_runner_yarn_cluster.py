@@ -138,8 +138,9 @@ def getParametersFromFile():
     IPDMAXCOVERAGE = 250
 
     # methylation types to be identified, for now there are three kinds: "m6A,m5C,m4C"
-    # Use ',' as delimiter. No space allowed.
+    # Use ',' as delimiter.
     METHYLATION_TYPES = 'm6A, m4C'
+    METHYLATION_TYPES = trim_spaces(METHYLATION_TYPES)
 
     # whether to write IPD value to file or not
     # "YES" or "NO"
@@ -172,6 +173,11 @@ def getParametersFromFile():
     SPARK_EXECUTOR_CORES = '4'
     # ---------------------------------------------------------------
     return
+
+
+# for trim spaces
+def trim_spaces(ori_str):
+    return str(ori_str).strip().replace(", ", ",")
 
 
 # fasta_info.py-------------------------
