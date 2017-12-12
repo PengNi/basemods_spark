@@ -4,7 +4,7 @@ from pyspark import SparkContext, SparkConf, SparkFiles
 from pyspark.storagelevel import StorageLevel
 from subprocess import Popen, PIPE
 from itertools import groupby
-from pbcore.io import BasH5Reader
+from pbcore.io import BasH5Reader, CmpH5Reader
 import h5py
 import shlex
 import os
@@ -53,6 +53,7 @@ limitation_readsnum = max_reads_per_chunk * 5
 
 # dir for save the results in HDFS
 HDFS_IPDINFO_DIR = '/fastipd'
+HDFS_SAMIPDINFO_DIR = '/samipd'
 HDFS_MODS_DIR = '/mods'
 
 
@@ -566,13 +567,31 @@ def write_ipd_of_bash5(inBasH5File, outIpdInfoFile):
         return issuccess
 
 
-def get_ipdvalue_of_baxh5_to_master(inBaxH5File, master_data_dir, max_sleep_seconds=1):
-    name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
-    dirpath = os.path.dirname(inBaxH5File)
-    outIpdInfoFileName = name_prefix + ".fastipd"
-    outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+def get_ipdvalue_of_h5_to_master(inH5File, master_data_dir, h5Type="BAXH5",
+                                 max_sleep_seconds=1):
+    """
 
-    wissuccess = write_ipd_of_bash5(inBaxH5File, outIpdInfoFile)
+    :param inH5File:
+    :param master_data_dir:
+    :param h5Type: "BAXH5" or "CMPH5"
+    :param max_sleep_seconds:
+    :return:
+    """
+    if h5Type == "BAXH5":
+        name_prefix = os.path.basename(inH5File).split(".bax.h5")[0]
+        outIpdInfoFileName = name_prefix + ".fastipd"
+        dirpath = os.path.dirname(inH5File)
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_bash5(inH5File, outIpdInfoFile)
+    elif h5Type == "CMPH5":
+        name_prefix = os.path.basename(inH5File).split(".cmp.h5")[0]
+        outIpdInfoFileName = name_prefix + ".samipd"
+        dirpath = os.path.dirname(inH5File)
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_cmph5(inH5File, outIpdInfoFile)
+    else:
+        print("arg h5Type is not set rightly")
+        return inH5File
     if wissuccess:
         master_ip = MASTERNODE_IP
         master_port = MASTERNODE_PORT
@@ -598,19 +617,36 @@ def get_ipdvalue_of_baxh5_to_master(inBaxH5File, master_data_dir, max_sleep_seco
         finally:
             os.remove(outIpdInfoFile)  # rm temp ipdinfo file
             print('done transmitting data from local node to {}'.format(remote_filepath))
-            return inBaxH5File
+            return inH5File
     else:
         print("failed to write {}".format(outIpdInfoFile))
-        return inBaxH5File
+        return inH5File
 
 
-def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=1):
-    name_prefix = os.path.basename(inBaxH5File).split(".bax.h5")[0]
-    dirpath = os.path.dirname(inBaxH5File)
-    outIpdInfoFileName = name_prefix + ".fastipd"
-    outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+def get_ipdvalue_of_h5_to_hdfs(inH5File, hdfs_data_dir, h5Type="BAXH5", max_sleep_seconds=1):
+    """
 
-    wissuccess = write_ipd_of_bash5(inBaxH5File, outIpdInfoFile)
+    :param inH5File:
+    :param hdfs_data_dir:
+    :param h5Type: "BAXH5" or "CMPH5"
+    :param max_sleep_seconds:
+    :return:
+    """
+    if h5Type == "BAXH5":
+        name_prefix = os.path.basename(inH5File).split(".bax.h5")[0]
+        dirpath = os.path.dirname(inH5File)
+        outIpdInfoFileName = name_prefix + ".fastipd"
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_bash5(inH5File, outIpdInfoFile)
+    elif h5Type == "CMPH5":
+        name_prefix = os.path.basename(inH5File).split(".cmp.h5")[0]
+        outIpdInfoFileName = name_prefix + ".samipd"
+        dirpath = os.path.dirname(inH5File)
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_cmph5(inH5File, outIpdInfoFile)
+    else:
+        print("arg h5Type is not set rightly")
+        return inH5File
     if wissuccess:
         cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-copyFromLocal', '-f',
                                                outIpdInfoFile,
@@ -619,7 +655,7 @@ def get_ipdvalue_of_baxh5_to_hdfs(inBaxH5File, hdfs_data_dir, max_sleep_seconds=
         os.remove(outIpdInfoFile)  # rm temp ipdinfo file
     else:
         print("failed to write {}".format(outIpdInfoFile))
-    return inBaxH5File
+    return inH5File
 
 
 # get baxh5file from master node---------------------------------------
@@ -653,7 +689,8 @@ def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_sec
         # ----transmit ipd value to master node
         # FIXME: need to delete this when it is useless
         if str(GET_IPD_FROM_BASH5).lower() == 'yes':
-            get_ipdvalue_of_baxh5_to_master(local_filepath, CELL_DATA_DIR, max_sleep_seconds)
+            get_ipdvalue_of_h5_to_master(local_filepath, CELL_DATA_DIR, "BAXH5",
+                                         max_sleep_seconds)
     except Exception:
         print('wrong connection local_filepath: {}'.format(local_filepath))
     finally:
@@ -681,7 +718,7 @@ def get_baxh5file_from_hdfs(hdfs_filepath, local_temp_dir, max_sleep_seconds=1):
         if str(GET_IPD_FROM_BASH5).lower() == 'yes':
             # hdfs_dir = os.path.dirname(hdfs_filepath)
             hdfs_dir = CELL_DATA_DIR + HDFS_IPDINFO_DIR
-            get_ipdvalue_of_baxh5_to_hdfs(local_filepath, hdfs_dir)
+            get_ipdvalue_of_h5_to_hdfs(local_filepath, hdfs_dir, "BAXH5")
         return local_filepath
 
 
@@ -886,12 +923,49 @@ def basemods_pipeline_baxh5_operations(keyval):
     else:
         print("\nbaxh5 process logging:\n stdout:{} \n".format(baxh5_out))
         cmph5_filepath = '/'.join([TEMP_OUTPUT_FOLDER, cmph5file])
+        # write ipdvalue of cmph5 file ---
+        if str(GET_IPD_FROM_CMPH5).lower() == 'yes':
+            if DATA_SAVE_MODE == 'MASTER':
+                get_ipdvalue_of_h5_to_master(cmph5_filepath, CELL_DATA_DIR, "CMPH5",
+                                             MAX_SLEEP_SECONDS)
+            elif DATA_SAVE_MODE == 'HDFS':
+                # hdfs_dir = os.path.dirname(hdfs_filepath)
+                hdfs_dir = CELL_DATA_DIR + HDFS_SAMIPDINFO_DIR
+                get_ipdvalue_of_h5_to_hdfs(cmph5_filepath, hdfs_dir, "CMPH5")
+            else:
+                pass
+        # --------------------------------
         aligned_reads = split_reads_in_cmph5(cmph5_filepath)
         # rm temp files --------
         os.remove(baxh5path)
         remove_files_in_a_folder(TEMP_OUTPUT_FOLDER, name_prefix)
         # ----------------------
         return aligned_reads
+
+
+def write_ipd_of_cmph5(inCmpH5File, outIpdInfoFile):
+    start = time.time()
+    inCmpH5 = CmpH5Reader(inCmpH5File)
+    issuccess = 0
+    try:
+        outIpdInfo = open(outIpdInfoFile, 'w')
+        outIpdInfo.write("#readID\trefID\trefStart\trefEnd\trefStrand\tMapQV\trefSeq\treadSeq\treadIPD\n")
+        for alignment in inCmpH5:
+            outIpdInfo.write('\t'.join([alignment.readName, alignment.referenceName,
+                                        str(alignment.tStart),
+                                        str(alignment.tEnd), str(alignment.RCRefStrand),
+                                        str(alignment.mapQV),
+                                        alignment.reference(), alignment.read(),
+                                        " ".join(map(str, alignment.IPD()))]) + "\n")
+        outIpdInfo.flush()
+        outIpdInfo.close()
+        print("the IPD info of {} has been extracted and written.\ncost {} seconds"
+              .format(inCmpH5File, time.time() - start))
+        issuccess = 1
+    except IOError:
+        print("IOError while writing {}".format(outIpdInfoFile))
+    finally:
+        return issuccess
 
 
 def writebaxh5(filecontent, filepath):
@@ -1694,6 +1768,19 @@ def run_hdfs_get_cmd(hdfs_file, local_file, max_sleep_seconds=1):
                         max_sleep_seconds)
 
 
+def mkdir_in_hdfs(thedir):
+    hdfs_dir = thedir
+    isFileOrDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-e', hdfs_dir])  # 0 is true, 1 is false
+    isDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-d', hdfs_dir])  # 0 is true, 1 is false
+    if isFileOrDir == 1:
+        cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-mkdir', '-p',
+                                               hdfs_dir])
+    elif isDir == 1:
+        raise ValueError("'{}' in your HDFS is a file, not a directory.\n"
+                         "however, we need it to be a directory.\n"
+                         "please fix it".format(hdfs_dir))
+
+
 # rm files with specific prefix-pattern in a folder ----------
 def remove_files_in_a_folder(file_directory, file_regex):
     for f in os.listdir(file_directory):
@@ -1801,29 +1888,13 @@ def basemods_pipe():
                 metaxml_filenames.append(local_metadataxml_file)
 
         # create folder in HDFS for saving mods result----
-        hdfs_modsresult_dir = CELL_DATA_DIR + HDFS_MODS_DIR
-        isFileOrDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-e', hdfs_modsresult_dir])  # 0 is true, 1 is false
-        isDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-d', hdfs_modsresult_dir])  # 0 is true, 1 is false
-        if isFileOrDir == 1:
-            cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-mkdir', '-p',
-                                                   hdfs_modsresult_dir])
-        elif isDir == 1:
-            raise ValueError("'{}' in your HDFS is a file, not a directory.\n"
-                             "however, we need it to be a directory.\n"
-                             "please fix it".format(hdfs_modsresult_dir))
-
+        mkdir_in_hdfs(CELL_DATA_DIR + HDFS_MODS_DIR)
         # create fastipd folder in HDFS if needed----
         if str(GET_IPD_FROM_BASH5).lower() == 'yes':
-            hdfs_fastipd_dir = pacbio_data_dir + HDFS_IPDINFO_DIR
-            isFileOrDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-e', hdfs_fastipd_dir])  # 0 is true, 1 is false
-            isDir = run_cmd([HDFS_CMD, 'dfs', '-test', '-d', hdfs_fastipd_dir])  # 0 is true, 1 is false
-            if isFileOrDir == 1:
-                cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-mkdir', '-p',
-                                                       hdfs_fastipd_dir])
-            elif isDir == 1:
-                raise ValueError("'{}' in your HDFS is a file, not a directory.\n"
-                                 "however, we need it to be a directory.\n"
-                                 "please fix it".format(hdfs_fastipd_dir))
+            mkdir_in_hdfs(pacbio_data_dir + HDFS_IPDINFO_DIR)
+        # create samipd folder in HDFS if needed----
+        if str(GET_IPD_FROM_CMPH5).lower() == 'yes':
+            mkdir_in_hdfs(pacbio_data_dir + HDFS_SAMIPDINFO_DIR)
     else:
         pass
 
