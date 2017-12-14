@@ -7,7 +7,7 @@ import socket
 import shutil
 
 worker_num = 40
-TEMP_OUTPUT_FOLDER = '/tmp/basemods_spark_data'
+TEMP_OUTPUT_FOLDERorFILE = '/tmp/basemods_spark_data'
 
 
 def get_ip_of_node():
@@ -21,16 +21,23 @@ def get_ip_of_node():
     return node_ip
 
 
-# to clear temp folder in each worker node---------------
-def rm_temp_folder(temp_folder):
+# to clear temp folder or file in each worker node---------------
+def rm_temp_folderorfile(temp_folderorfile):
     issuccess = 0
-    if os.path.isdir(temp_folder):
+    if os.path.isdir(temp_folderorfile):
         try:
-            shutil.rmtree(temp_folder)
+            shutil.rmtree(temp_folderorfile)
             issuccess = 1
             print("temp folder of {} has been deleted.".format(get_ip_of_node()))
         except OSError:
             print("something is wrong when deleting temp folder of {}, but don't worry.".format(get_ip_of_node()))
+    elif os.path.isfile(temp_folderorfile):
+        try:
+            os.remove(temp_folderorfile)
+            issuccess = 1
+            print("temp file of {} has been deleted.".format(get_ip_of_node()))
+        except OSError:
+            print("something is wrong when deleting temp file of {}, but don't worry.".format(get_ip_of_node()))
     return issuccess
 
 
@@ -46,11 +53,11 @@ if __name__ == '__main__':
     worker_num = 40
     rdd_ele_num = worker_num * 10
     rm_num = sc.range(rdd_ele_num, numSlices=rdd_ele_num) \
-        .map(lambda x: TEMP_OUTPUT_FOLDER) \
-        .map(rm_temp_folder) \
+        .map(lambda x: TEMP_OUTPUT_FOLDERorFILE) \
+        .map(rm_temp_folderorfile) \
         .reduce(lambda x, y: x + y)
     print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
-    missuccess = rm_temp_folder(TEMP_OUTPUT_FOLDER)
+    missuccess = rm_temp_folderorfile(TEMP_OUTPUT_FOLDERorFILE)
     if missuccess > 0:
         print("temp folder of master node has been deleted.")
 
