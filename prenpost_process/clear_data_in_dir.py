@@ -6,8 +6,8 @@ import time
 import socket
 import shutil
 
-worker_num = 40
-TEMP_OUTPUT_FOLDERorFILE = '/tmp/basemods_spark_data'
+worker_num = 2
+TEMP_OUTPUT_FOLDER = '/tmp/test'
 
 
 def get_ip_of_node():
@@ -22,22 +22,26 @@ def get_ip_of_node():
 
 
 # to clear temp folder or file in each worker node---------------
-def rm_temp_folderorfile(temp_folderorfile):
+def rm_temp_folder(temp_folder):
     issuccess = 0
-    if os.path.isdir(temp_folderorfile):
+    if os.path.isdir(temp_folder):
         try:
-            shutil.rmtree(temp_folderorfile)
+            for the_file in os.listdir(temp_folder):
+                filepath = '/'.join([temp_folder, the_file])
+                if os.path.isdir(filepath):
+                    try:
+                        shutil.rmtree(filepath)
+                    except OSError:
+                        print("something is wrong")
+                else:
+                    try:
+                        os.remove(filepath)
+                    except OSError:
+                        print("something is wrong")
             issuccess = 1
             print("temp folder of {} has been deleted.".format(get_ip_of_node()))
         except OSError:
             print("something is wrong when deleting temp folder of {}, but don't worry.".format(get_ip_of_node()))
-    elif os.path.isfile(temp_folderorfile):
-        try:
-            os.remove(temp_folderorfile)
-            issuccess = 1
-            print("temp file of {} has been deleted.".format(get_ip_of_node()))
-        except OSError:
-            print("something is wrong when deleting temp file of {}, but don't worry.".format(get_ip_of_node()))
     return issuccess
 
 
@@ -52,13 +56,13 @@ if __name__ == '__main__':
     # can't guarantee rm every worker's temp folder
     rdd_ele_num = worker_num * 10
     rm_num = sc.range(rdd_ele_num, numSlices=rdd_ele_num) \
-        .map(lambda x: TEMP_OUTPUT_FOLDERorFILE) \
-        .map(rm_temp_folderorfile) \
+        .map(lambda x: TEMP_OUTPUT_FOLDER) \
+        .map(rm_temp_folder) \
         .reduce(lambda x, y: x + y)
     print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
-    missuccess = rm_temp_folderorfile(TEMP_OUTPUT_FOLDERorFILE)
-    if missuccess > 0:
-        print("temp folder of master node has been deleted.")
+    # missuccess = rm_temp_folderorfile(TEMP_OUTPUT_FOLDERorFILE)
+    # if missuccess > 0:
+    #     print("temp folder of master node has been deleted.")
 
     sc.stop()
     print('total time cost: {} seconds'.format(time.time() - pipe_start))
