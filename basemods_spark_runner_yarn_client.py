@@ -658,6 +658,39 @@ def get_ipdvalue_of_h5_to_hdfs(inH5File, hdfs_data_dir, h5Type="BAXH5", max_slee
     return inH5File
 
 
+def get_ipdvalue_of_h5_to_sharedfolder(inH5File, shared_dir, h5Type="BAXH5"):
+    """
+
+    :param inH5File:
+    :param shared_dir:
+    :param h5Type: "BAXH5" or "CMPH5"
+    :return:
+    """
+    if h5Type == "BAXH5":
+        name_prefix = os.path.basename(inH5File).split(".bax.h5")[0]
+        outIpdInfoFileName = name_prefix + ".fastipd"
+
+        dirpath = os.path.dirname(inH5File)
+        if dirpath != shared_dir:
+            dirpath = shared_dir
+
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_bash5(inH5File, outIpdInfoFile)
+    elif h5Type == "CMPH5":
+        name_prefix = os.path.basename(inH5File).split(".cmp.h5")[0]
+        outIpdInfoFileName = name_prefix + ".samipd"
+
+        dirpath = os.path.dirname(inH5File)
+        if dirpath != shared_dir:
+            dirpath = shared_dir
+
+        outIpdInfoFile = '/'.join([dirpath, outIpdInfoFileName])
+        wissuccess = write_ipd_of_cmph5(inH5File, outIpdInfoFile)
+    else:
+        print("arg h5Type is not set rightly")
+        return inH5File
+
+
 # get baxh5file from master node---------------------------------------
 def get_baxh5file_from_masternode(remote_filepath, local_temp_dir, max_sleep_seconds=1):
     master_ip = MASTERNODE_IP
@@ -720,6 +753,20 @@ def get_baxh5file_from_hdfs(hdfs_filepath, local_temp_dir, max_sleep_seconds=1):
             hdfs_dir = CELL_DATA_DIR + HDFS_IPDINFO_DIR
             get_ipdvalue_of_h5_to_hdfs(local_filepath, hdfs_dir, "BAXH5")
         return local_filepath
+
+
+def get_baxh5file_from_sharedfolder(shareddir_filepath):
+    try:
+        # ----transmit ipd value to master node
+        # FIXME: need to delete this when it is useless
+        if str(GET_IPD_FROM_BASH5).lower() == 'yes':
+            get_ipdvalue_of_h5_to_sharedfolder(shareddir_filepath, CELL_DATA_DIR,
+                                               "BAXH5")
+    except Exception:
+        print('wrong connection shared_folder: {}'.format(shareddir_filepath))
+    finally:
+        print('done transmitting data from shared folder to {}'.format(shareddir_filepath))
+        return shareddir_filepath
 
 
 # convert baxh5 to list------------------------------------------------
@@ -878,8 +925,14 @@ def basemods_pipeline_baxh5_operations(keyval):
     """
     fileinfo, filecontent = keyval
 
-    reference_path = SparkFiles.get(REF_FILENAME)
-    referencesa_path = SparkFiles.get(USED_REF_SA_FILENAME)
+    if DATA_SAVE_MODE == 'MASTER' or DATA_SAVE_MODE == 'HDFS':
+        reference_path = SparkFiles.get(REF_FILENAME)
+        referencesa_path = SparkFiles.get(USED_REF_SA_FILENAME)
+    elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+        reference_path = '/'.join([REFERENCE_DIR, REF_FILENAME])
+        referencesa_path = '/'.join([REFERENCE_DIR, USED_REF_SA_FILENAME])
+    else:
+        reference_path = referencesa_path = ''
     baxh5_shell_file_path = SparkFiles.get(shell_script_baxh5)
 
     if not os.path.isdir(TEMP_OUTPUT_FOLDER):
@@ -932,12 +985,16 @@ def basemods_pipeline_baxh5_operations(keyval):
                 # hdfs_dir = os.path.dirname(hdfs_filepath)
                 hdfs_dir = CELL_DATA_DIR + HDFS_SAMIPDINFO_DIR
                 get_ipdvalue_of_h5_to_hdfs(cmph5_filepath, hdfs_dir, "CMPH5")
+            elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+                get_ipdvalue_of_h5_to_sharedfolder(cmph5_filepath, CELL_DATA_DIR,
+                                                   "CMPH5")
             else:
                 pass
         # --------------------------------
         aligned_reads = split_reads_in_cmph5(cmph5_filepath)
         # rm temp files --------
-        os.remove(baxh5path)
+        if DATA_SAVE_MODE == 'MASTER' or DATA_SAVE_MODE == 'HDFS':
+            os.remove(baxh5path)
         remove_files_in_a_folder(TEMP_OUTPUT_FOLDER, name_prefix)
         # ----------------------
         return aligned_reads
@@ -1163,7 +1220,12 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
 
         # setting paths and variables
         contig_filename = name_reference_contig_file(REF_FILENAME, reffullname)
-        reference_path = SparkFiles.get(contig_filename)
+        if DATA_SAVE_MODE == 'MASTER' or DATA_SAVE_MODE == 'HDFS':
+            reference_path = SparkFiles.get(contig_filename)
+        elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+            reference_path = os.path.join(REFERENCE_DIR, contig_filename)
+        else:
+            reference_path = ''
 
         cmph5_shell_file_path = SparkFiles.get(shell_script_cmph5)
         cmph5_filename = name_prefix + ".cmp.h5"
@@ -1681,8 +1743,14 @@ def writemods_of_each_chromosome(keyval, refinfo, max_sleep_seconds=1):
         cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-copyFromLocal', '-f',
                                                csvfilepath,
                                                mcsvfilepath])
+    elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+        mgfffilepath = '/'.join([CELL_DATA_DIR, gfffilename])
+        mcsvfilepath = '/'.join([CELL_DATA_DIR, csvfilename])
+        run_cmd(['cp', gfffilepath, mgfffilepath])
+        run_cmd(['cp', csvfilepath, mcsvfilepath])
     else:
-        pass
+        mgfffilepath = ''
+        mcsvfilepath = ''
     return mgfffilepath, mcsvfilepath
 
 
@@ -1827,6 +1895,8 @@ def basemods_pipe():
     elif DATA_SAVE_MODE == 'MASTER':
         sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
         ref_dir = REFERENCE_DIR
+    elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+        ref_dir = REFERENCE_DIR
     else:
         print('please set DATA_SAVE_MODE in parameters.conf')
         return
@@ -1836,7 +1906,8 @@ def basemods_pipe():
         sa_script_path = '/'.join([abs_dir, 'scripts', shell_script_sa])
         ref_sa_filename = exec_sawriter(sa_script_path, '/'.join([ref_dir, REF_FILENAME]))
         print('sawriter finished. {} is generated'.format(ref_sa_filename))
-        sc.addFile('/'.join([ref_dir, ref_sa_filename]))
+        if DATA_SAVE_MODE == 'MASTER' or DATA_SAVE_MODE == 'HDFS':
+            sc.addFile('/'.join([ref_dir, ref_sa_filename]))
         USED_REF_SA_FILENAME = ref_sa_filename
     else:
         if DATA_SAVE_MODE == 'HDFS':
@@ -1852,8 +1923,11 @@ def basemods_pipe():
     # ref contigs----
     refcontigs = getRefInfoFromFastaFiles(['/'.join([ref_dir, REF_FILENAME]), ])
     contig_filepaths = write_ref_contigs(ref_dir, REF_FILENAME, refcontigs)
-    for contig_filepath in contig_filepaths:
-        sc.addFile(contig_filepath)
+    if DATA_SAVE_MODE == 'HDFS' or DATA_SAVE_MODE == 'MASTER':
+        for contig_filepath in contig_filepaths:
+            sc.addFile(contig_filepath)
+    else:
+        pass
     # del sequence
     for contig in refcontigs.keys():
         refcontigs[contig][SEQUENCE] = ''
@@ -1867,7 +1941,7 @@ def basemods_pipe():
     pacbio_data_dir = CELL_DATA_DIR
     baxh5_filenames = []
     metaxml_filenames = []
-    if DATA_SAVE_MODE == 'MASTER':
+    if DATA_SAVE_MODE == 'MASTER' or DATA_SAVE_MODE == 'SHARED_FOLDER':
         for root, dirnames, filenames in os.walk(pacbio_data_dir):
             for filename in fnmatch.filter(filenames, '*.bax.h5'):
                 baxh5_filenames.append(os.path.join(root, filename))
@@ -1924,6 +1998,14 @@ def basemods_pipe():
             partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
             persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
             #persist(StorageLevel.MEMORY_AND_DISK)
+    elif DATA_SAVE_MODE == 'SHARED_FOLDER':
+        aligned_reads_rdd = baxh5nameRDD. \
+            map(lambda x: get_baxh5file_from_sharedfolder(x)). \
+            flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
+            flatMap(basemods_pipeline_baxh5_operations). \
+            partitionBy(len(baxh5_filenames) * reads_shuffle_factor). \
+            persist(StorageLevel.DISK_ONLY)  # use DISK_ONLY temporarily
+            # persist(StorageLevel.MEMORY_AND_DISK)
     else:
         aligned_reads_rdd = None
         return

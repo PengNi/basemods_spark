@@ -1523,9 +1523,7 @@ def writemods_of_each_chromosome(keyval, refinfo, max_sleep_seconds=1):
     csvfilepath = '/'.join([TEMP_OUTPUT_FOLDER, csvfilename])
     writemodificationinfo(modsinfo, reffullname, refinfo, gfffilepath, csvfilepath)
 
-    if DATA_SAVE_MODE == 'MASTER':
-        pass
-    elif DATA_SAVE_MODE == 'HDFS':
+    if DATA_SAVE_MODE == 'HDFS':
         hdfs_modsresult_dir = CELL_DATA_DIR + HDFS_MODS_DIR
         mgfffilepath = '/'.join([hdfs_modsresult_dir, gfffilename])
         mcsvfilepath = '/'.join([hdfs_modsresult_dir, csvfilename])
@@ -1677,9 +1675,6 @@ def basemods_pipe():
                                                   local_ref_file)
         sc.addFile(local_ref_file)
         ref_dir = TEMP_OUTPUT_FOLDER
-    elif DATA_SAVE_MODE == 'MASTER':
-        sc.addFile('/'.join([REFERENCE_DIR, REF_FILENAME]))
-        ref_dir = REFERENCE_DIR
     else:
         print('please set DATA_SAVE_MODE in parameters.conf')
         return
@@ -1697,8 +1692,6 @@ def basemods_pipe():
             cmd_output, cmd_errors = run_hdfs_get_cmd('/'.join([REFERENCE_DIR, REF_SA_FILENAME]),
                                                       local_refsa_file)
             sc.addFile(local_refsa_file)
-        elif DATA_SAVE_MODE == 'MASTER':
-            sc.addFile('/'.join([REFERENCE_DIR, REF_SA_FILENAME]))
         else:
             pass
         USED_REF_SA_FILENAME = REF_SA_FILENAME
@@ -1720,9 +1713,7 @@ def basemods_pipe():
     pacbio_data_dir = CELL_DATA_DIR
     baxh5_filenames = []
     metaxml_filenames = []
-    if DATA_SAVE_MODE == 'MASTER':
-        print("Please use HDFS DATA_SAVE_MODE")
-    elif DATA_SAVE_MODE == 'HDFS':
+    if DATA_SAVE_MODE == 'HDFS':
         cmd_output, cmd_errors = run_cmd_safe([HDFS_CMD, 'dfs', '-ls', '-R',
                                                pacbio_data_dir])
         fileitems = [word[-1] for word in [words.split(' ') for words in cmd_output.split('\n')]]
@@ -1757,10 +1748,7 @@ def basemods_pipe():
         .repartition(re_numpartitions)\
         .coalesce(len(baxh5_filenames))
 
-    if DATA_SAVE_MODE == 'MASTER':
-        aligned_reads_rdd = None
-        return
-    elif DATA_SAVE_MODE == 'HDFS':
+    if DATA_SAVE_MODE == 'HDFS':
         aligned_reads_rdd = baxh5nameRDD. \
             map(lambda x: get_baxh5file_from_hdfs(x, local_temp_dir)). \
             flatMap(lambda x: get_chunks_of_baxh5file(x, baxh5_folds)). \
