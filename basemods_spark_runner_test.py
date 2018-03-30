@@ -1000,7 +1000,7 @@ def basemods_pipeline_baxh5_operations(keyval):
 
 
 def copy_cmph5_to_shared_folder(cmph5file, shared_dir):
-    run_cmd_safe(['cp', cmph5file, shared_dir], max_sleep_seconds=20)
+    run_cmd_safe(['cp', cmph5file, shared_dir], max_sleep_seconds=200)
 
 
 def write_ipd_of_cmph5(inCmpH5File, outIpdInfoFile):
