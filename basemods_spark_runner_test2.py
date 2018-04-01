@@ -2072,16 +2072,16 @@ def basemods_pipe():
 
     # rm temp folder of each worker node and master node---------------------------------------
     # can't guarantee rm every worker's temp folder
-    # worker_num = 40
-    # rdd_ele_num = worker_num * 10
-    # rm_num = sc.range(rdd_ele_num, numSlices=rdd_ele_num)\
-    #     .map(lambda x: TEMP_OUTPUT_FOLDER)\
-    #     .map(rm_temp_folder)\
-    #     .reduce(lambda x, y: x + y)
-    # print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
-    # missuccess = rm_temp_folder(TEMP_OUTPUT_FOLDER)
-    # if missuccess > 0:
-    #     print("temp folder of master node has been deleted.")
+    worker_num = 40
+    rdd_ele_num = worker_num * 10
+    rm_num = sc.range(rdd_ele_num, numSlices=rdd_ele_num)\
+        .map(lambda x: TEMP_OUTPUT_FOLDER)\
+        .map(rm_temp_folder)\
+        .reduce(lambda x, y: x + y)
+    print("temp folders of {} worker node(s) have been deleted.".format(rm_num))
+    missuccess = rm_temp_folder(TEMP_OUTPUT_FOLDER)
+    if missuccess > 0:
+        print("temp folder of master node has been deleted.")
 
     # exit-------------------------------------------------------------------------------------
     SparkContext.stop(sc)
