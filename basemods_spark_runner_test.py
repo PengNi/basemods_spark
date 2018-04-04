@@ -1000,6 +1000,11 @@ def basemods_pipeline_baxh5_operations(keyval):
 
 
 def copy_cmph5_to_shared_folder(cmph5file, shared_dir):
+    if not os.path.isdir(shared_dir):
+        try:
+            os.mkdir(shared_dir, 0777)
+        except:
+            print('shared_dir {} exists.'.format(shared_dir))
     run_cmd_safe(['cp', cmph5file, shared_dir], max_sleep_seconds=200)
 
 

@@ -1193,6 +1193,15 @@ def _queueChunksForReference(numHits, refLength):
     return blocks
 
 
+def copy_cmph5_to_shared_folder(cmph5file, shared_dir):
+    if not os.path.isdir(shared_dir):
+        try:
+            os.mkdir(shared_dir, 0777)
+        except:
+            print('shared_dir {} exists.'.format(shared_dir))
+    run_cmd_safe(['cp', cmph5file, shared_dir], max_sleep_seconds=50)
+
+
 # operations for each rdd element in cmph5ReadsRDD-------------------------
 def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
     """
@@ -1268,20 +1277,22 @@ def basemods_pipeline_cmph5_operations(keyval, moviechemistry, refinfo):
             gff_filepath = '/'.join([TEMP_OUTPUT_FOLDER, modification_gff])
             csv_filepath = '/'.join([TEMP_OUTPUT_FOLDER, modification_csv])
 
-            gffContent, csvContent = "", ""
-            with open(gff_filepath) as rf:
-                for line in rf:
-                    if not line.startswith("##"):
-                        gffContent += line.strip() + '\n'
-                        break
-                gffContent += "\n".join(line.strip() for line in rf) + '\n'
-            with open(csv_filepath) as rf:
-                next(rf)
-                csvContent += "\n".join(line.strip() for line in rf) + '\n'
+            # gffContent, csvContent = "", ""
+            # with open(gff_filepath) as rf:
+            #     for line in rf:
+            #         if not line.startswith("##"):
+            #             gffContent += line.strip() + '\n'
+            #             break
+            #     gffContent += "\n".join(line.strip() for line in rf) + '\n'
+            # with open(csv_filepath) as rf:
+            #     next(rf)
+            #     csvContent += "\n".join(line.strip() for line in rf) + '\n'
+            copy_cmph5_to_shared_folder(gff_filepath, '/mydata/data/homo_mod/'+rename(reffullname))
+            copy_cmph5_to_shared_folder(csv_filepath, '/mydata/data/homo_mod/'+rename(reffullname))
             # rm temp files --------
             remove_files_in_a_folder(TEMP_OUTPUT_FOLDER, name_prefix)
             # ----------------------
-            return reffullname, (ref_start, {'csv': csvContent, 'gff': gffContent, })
+            return reffullname, (ref_start, {'csv': 1, 'gff': 2, })
     else:
         raise ValueError("no reads to form a cmph5 file")
 
@@ -2044,22 +2055,23 @@ def basemods_pipe():
         .map(lambda (x, y): basemods_pipeline_cmph5_operations((x, y),
                                                                moviestriple.value,
                                                                refinfos.value))\
-        .partitionBy(len(ref_identifiers_count))
+        .count()
+        # .partitionBy(len(ref_identifiers_count))
 
     # # STEP 3 mods.gff/csv->motif.gff/csv (MotifMaker)---------------------------------------
     # motif_rdd = modification_rdd.groupByKey()\
     #     .map(lambda (x, y): basemods_pipeline_modification_operations((x, y),
     #                                                                   refinfos.value))
     # motif_rdd.count()
-    modsinfo_rdd = modification_rdd.groupByKey()\
-        .map(lambda (x, y): writemods_of_each_chromosome((x, y),
-                                                         refinfos.value,
-                                                         MAX_SLEEP_SECONDS))
-    modsinfo = modsinfo_rdd.collect()
-    print('base modifications info are saved in {}. filepaths are:'
-          .format(DATA_SAVE_MODE))
-    for mi in modsinfo:
-        print(mi)
+    # modsinfo_rdd = modification_rdd.groupByKey()\
+    #     .map(lambda (x, y): writemods_of_each_chromosome((x, y),
+    #                                                      refinfos.value,
+    #                                                      MAX_SLEEP_SECONDS))
+    # modsinfo = modsinfo_rdd.collect()
+    # print('base modifications info are saved in {}. filepaths are:'
+    #       .format(DATA_SAVE_MODE))
+    # for mi in modsinfo:
+    #     print(mi)
 
     # clear persisted rdd and broadcast variables----------------------------------------------
     aligned_reads_rdd.unpersist()
