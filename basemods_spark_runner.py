@@ -18,12 +18,16 @@ import time
 import random
 import shutil
 import xml.etree.ElementTree as ET
+import pickle
 
 shell_script_baxh5 = 'baxh5_operations.sh'
 shell_script_cmph5 = 'cmph5_operations.sh'
 shell_script_mods = 'mods_operations.sh'
 shell_script_sa = 'exec_sawriter.sh'
 parameters_config = 'parameters.conf'
+
+rsi_pkl = 'ref_splitting_info.pkl'
+acec_pkl = 'atomchunk2enlargedchunk.pkl'
 
 H5GROUP = h5py._hl.group.Group
 H5DATASET = h5py._hl.dataset.Dataset
@@ -1420,9 +1424,9 @@ def create_redundant_reads(read_keyval, ref_splitting_info,
     check if a read needs to be copyed for two ref chunks,
     reads->atomchunks->enlargedchunks
     :param read_keyval:
-    :param ref_splitting_info:
+    :param ref_splitting_info: not used, use pickle instead
     :param danger_atomchunks: dict: {atomchunk1: ratio*100, ...}
-    :param atomchunk2enlargedchunk:
+    :param atomchunk2enlargedchunk: not used, use pickle instead
     :return: [(key, val), ]
     key: (reffullname, (ref_splitting_range_start, ref_splitting_range_end, ref_splitting_range_folds))
     val: the same as value in read_keyval
@@ -1431,7 +1435,16 @@ def create_redundant_reads(read_keyval, ref_splitting_info,
     # FIXED: or (start-pad, end+pad)?. For now, use (start, end)
     # FIXED: answer: use (start, end) is enough
     (read_refid, target_start, target_end) = read_keyval[0]
+
+    rsi_pkl_path = SparkFiles.get(rsi_pkl)
+    with open(rsi_pkl_path, 'r') as rf:
+        ref_splitting_info = pickle.load(rf)
+
     read_ref_splitting_info = ref_splitting_info[read_refid]
+
+    acec_pkl_path = SparkFiles.get(acec_pkl)
+    with open(acec_pkl_path, 'r') as rf:
+        atomchunk2enlargedchunk = pickle.load(rf)
 
     res_keyval = []
     enlarged_chunks = set()
@@ -1459,13 +1472,18 @@ def get_atomchunks(read_key, ref_splitting_info):
     """
     check if a read needs to be copyed for two ref chunks
     :param read_key:
-    :param ref_splitting_info:
+    :param ref_splitting_info: not used, use pickle instead
     :return:
     """
     # FIXED: classify the reads by covering ref_splitting_range (start, end)
     # FIXED: or (start-pad, end+pad)?. For now, use (start, end)
     # FIXED: answer: use (start, end) is enough
     (read_refid, target_start, target_end) = read_key
+
+    rsi_pkl_path = SparkFiles.get(rsi_pkl)
+    with open(rsi_pkl_path, 'r') as rf:
+        ref_splitting_info = pickle.load(rf)
+
     read_ref_splitting_info = ref_splitting_info[read_refid]
 
     chunksOfThisRead = []
@@ -2021,10 +2039,16 @@ def basemods_pipe():
     # # dfactor = REF_CHUNKS_FACTOR
     # dfactor = SPARK_TASK_CPUS
     # ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, dfactor))
-    ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, 1))
+
+    # ref_splitting_info = sc.broadcast(adjust_ref_splitting_info(ref_splitting_info, 1))
+    ref_splitting_info = adjust_ref_splitting_info(ref_splitting_info, 1)
+    rsi_save_path = "/".join([TEMP_OUTPUT_FOLDER, rsi_pkl])
+    with open(rsi_save_path, "w") as wf:
+        pickle.dump(ref_splitting_info, wf)
+    sc.addFile(rsi_save_path)
 
     atomchunk2readsnum = sorted(aligned_reads_rdd
-                                .flatMap(lambda x: get_atomchunks(x[0], ref_splitting_info.value))
+                                .flatMap(lambda x: get_atomchunks(x[0], None))
                                 .countByValue()
                                 .items(),
                                 key=lambda achunk: (achunk[0][0], achunk[0][1][0]))
@@ -2037,16 +2061,26 @@ def basemods_pipe():
     danger_atomchunks = sc.broadcast(danger_atomchunks)
 
     max_chunknum = int(SPARK_TASK_CPUS)
-    atomchunk2enlargedchunk = sc.broadcast(resplit_refchunks(atomchunk2readsnum,
-                                                             max_chunknum))
+    # atomchunk2enlargedchunk = sc.broadcast(resplit_refchunks(atomchunk2readsnum,
+    #                                                          max_chunknum))
+
+    atomchunk2enlargedchunk = resplit_refchunks(atomchunk2readsnum,
+                                                max_chunknum)
+    acec_save_path = "/".join([TEMP_OUTPUT_FOLDER, acec_pkl])
+    with open(acec_save_path, "w") as wf:
+        pickle.dump(atomchunk2enlargedchunk, wf)
+    sc.addFile(acec_save_path)
+
     enlargedchunks = set()
-    for a in atomchunk2enlargedchunk.value.keys():
-        enlargedchunks.add(atomchunk2enlargedchunk.value[a])
+    # for a in atomchunk2enlargedchunk.value.keys():
+    #     enlargedchunks.add(atomchunk2enlargedchunk.value[a])
+    for a in atomchunk2enlargedchunk.keys():
+        enlargedchunks.add(atomchunk2enlargedchunk[a])
 
     cmph5rdd = aligned_reads_rdd\
-        .flatMap(lambda x: create_redundant_reads(x, ref_splitting_info.value,
+        .flatMap(lambda x: create_redundant_reads(x, None,
                                                   danger_atomchunks.value,
-                                                  atomchunk2enlargedchunk.value))\
+                                                  None))\
         .partitionBy(len(enlargedchunks))\
         .groupByKey()
 
@@ -2082,10 +2116,10 @@ def basemods_pipe():
     aligned_reads_rdd.unpersist()
     # atomchunks_rdd.unpersist()
     refinfos.destroy()
-    ref_splitting_info.destroy()
+    # ref_splitting_info.destroy()
     danger_atomchunks.destroy()
     moviestriple.destroy()
-    atomchunk2enlargedchunk.destroy()
+    # atomchunk2enlargedchunk.destroy()
 
     # rm temp folder of each worker node and master node---------------------------------------
     # can't guarantee rm every worker's temp folder
